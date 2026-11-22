@@ -186,6 +186,7 @@ export function summary(c) {
     `Навыки: ${sk || '—'}. Атаки: ${c.attacks.map((a) => `${a.name} ${a.bonus} (${a.dmg})`).join('; ') || '—'}.`;
   if (si) s += ` Заклинания (СЛ ${si.dc}, атака +${si.atk}): ${[...c.spells, c.customSpells].filter(Boolean).join(', ') || '—'}.`;
   if (c.conditions) s += ` Состояния: ${c.conditions}.`;
+  if (c.quest) s += ` Личная цель: ${c.quest}.`;
   if (c.equipment) s += ` Снаряжение: ${c.equipment.replace(/\n/g, '; ')}. Золото: ${c.gold} зм.`;
   return s;
 }

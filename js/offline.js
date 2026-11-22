@@ -1,6 +1,6 @@
 // «Мастер без ИИ»: движок сцен, проверок и пошагового боя. Работает полностью офлайн.
 import { state, save } from './store.js';
-import { ADVENTURES, MONSTERS, generateDungeon } from './adventures.js';
+import { ADVENTURES, MONSTERS, PERSONAL_QUESTS, generateDungeon } from './adventures.js';
 import { rollFormula, d20, fmtMod } from './dice.js';
 import * as C from './character.js';
 import * as DM from './dm.js';
@@ -14,7 +14,7 @@ export function setHelpers(h) { H = { ...H, ...h }; }
 const party = () => state.party.map((id) => state.characters.find((c) => c.id === id)).filter(Boolean);
 const byId = (id) => state.characters.find((c) => c.id === id);
 const off = () => state.offline || (state.offline = blank());
-function blank() { return { advId: null, custom: null, sceneId: null, flags: {}, visited: {}, log: [], combat: null, ended: null, actor: null }; }
+function blank() { return { advId: null, custom: null, sceneId: null, flags: {}, visited: {}, log: [], combat: null, ended: null, actor: null, quests: {}, progress: 0 }; }
 const adv = () => off().custom || ADVENTURES.find((a) => a.id === off().advId);
 const scene = () => adv()?.scenes[off().sceneId];
 
@@ -27,6 +27,93 @@ function actor() {
   let c = byId(off().actor);
   if (!c || !p.includes(c)) c = p.find((x) => x.hpCur > 0) || p[0];
   return c;
+}
+
+// ---------- Очерёдность ходов ----------
+const turnOrderOn = () => state.settings.turnOrder !== false;
+function rotate(announce = true) {
+  if (!turnOrderOn()) return;
+  const p = party();
+  if (!p.length) return;
+  const cur0 = actor();
+  let i = p.indexOf(cur0);
+  for (let k = 1; k <= p.length; k++) {
+    const c = p[(i + k) % p.length];
+    if (c.hpCur > 0 && !isDead(c)) { off().actor = c.id; break; }
+  }
+  save();
+  const o = off();
+  if (announce && !o.combat && !o.ended && p.length > 1) DM.speak(`${actor().name.split(' ')[0]}, твой ход.`);
+}
+
+// ---------- Личные сюжетные линии ----------
+const STEP_AT = [2, 5, 8]; // сколько сцен должно пройти, чтобы открылся шаг
+function questOf(c) {
+  const q = off().quests?.[c.id];
+  if (!q) return null;
+  return { q, tpl: PERSONAL_QUESTS.find((t) => t.id === q.qid) };
+}
+function questStatus(c) {
+  const x = questOf(c);
+  if (!x) return '';
+  const { q, tpl } = x;
+  if (q.done) return `${tpl.title}: ${q.success ? '✅ завершена' : '☑️ завершена не до конца'} — ${tpl.goal}`;
+  return `${tpl.title} (шаг ${q.step + 1}/3): ${tpl.goal}`;
+}
+function personalAvailable(c) {
+  const x = questOf(c);
+  if (!x || x.q.done) return null;
+  const o = off();
+  if (o.progress < STEP_AT[x.q.step]) return null;
+  if (x.q.lastAt === o.progress) return null; // не больше одного шага за сцену
+  return x.tpl.steps[x.q.step];
+}
+function assignQuests() {
+  const o = off();
+  const pool = [...PERSONAL_QUESTS].sort(() => Math.random() - 0.5);
+  party().forEach((c, i) => {
+    const tpl = pool[i % pool.length];
+    o.quests[c.id] = { qid: tpl.id, step: 0, done: false, success: 0 };
+    c.quest = questStatus(c);
+  });
+  sys('⭐ Личные истории: ' + party().map((c) => `${c.name} — «${questOf(c).tpl.title}»`).join(' · '));
+}
+const nm = (t, c) => t.replace(/\{name\}/g, c.name.split(' ')[0]);
+function choosePersonal() {
+  const c = actor();
+  const step = personalAvailable(c);
+  if (!step) return;
+  const { q, tpl } = questOf(c);
+  DM.stopSpeaking();
+  log({ type: 'player', who: c.name, text: `⭐ ${step.label}` });
+  narrate(nm(step.text, c), `⭐ ${tpl.title}`);
+  const chk = C.resolveCheck(c, step.what);
+  const r = d20(chk.mod);
+  const ok = r.total >= step.dc;
+  log({ type: 'roll', html: rollLine(c, `${chk.label} (СЛ ${step.dc})`, r, step.dc) });
+  H.toast(`<div>${esc(c.name)} · ${esc(chk.label)}</div><div class="big ${ok ? 'crit' : 'fumble'}">${r.total}</div><div>${ok ? 'Успех!' : 'Провал'}</div>`, 1800);
+  narrate(nm(ok ? step.ok : step.fail, c), `⭐ ${tpl.title}`);
+  if (!ok && step.failHp) { const n = rollFormula(step.failHp.replace('-', '')).total; damageHero(c, n); sys(`${c.name}: −${n} хитов`); }
+  if (ok && step.okHeal) { const n = rollFormula(step.okHeal).total; healHero(c, n); sys(`${c.name}: +${n} хитов`); }
+  const last = q.step === 2;
+  const xp = ok ? (last ? 150 : 50) : 25;
+  c.xp = (Number(c.xp) || 0) + xp;
+  if (ok) q.success++;
+  let note = `${c.name}: +${xp} опыта`;
+  if (last && ok && step.reward) {
+    const rw = step.reward;
+    if (rw.item) { c.equipment = (c.equipment ? c.equipment + '\n' : '') + rw.item; note += ` · получает «${rw.item}»`; }
+    if (rw.ac) { c.acMisc = (Number(c.acMisc) || 0) + rw.ac; note += ` · КД +${rw.ac}`; }
+    if (rw.gold) { const g = rollFormula(rw.gold).total; c.gold = (Number(c.gold) || 0) + g; note += ` · +${g} зм`; }
+    if (rw.inspiration) { c.inspiration = true; note += ' · вдохновение'; }
+  }
+  sys(note);
+  q.lastAt = off().progress;
+  if (last) { q.done = true; sys(`⭐ Личная история «${tpl.title}» героя ${c.name} завершена!`); }
+  else q.step++;
+  c.quest = questStatus(c);
+  rotate();
+  save(); H.rerender();
 }
 
 function removeCond(list, cond) {
@@ -65,6 +152,8 @@ export function startAdventure(id) {
     c.conditions = removeCond(c.conditions, 'Без сознания');
   });
   sys(`— ${adv().title} —`);
+  assignQuests();
+  o.actor = party()[0]?.id;
   enterScene(adv().start);
 }
 
@@ -73,6 +162,7 @@ function enterScene(id) {
   const sc = adv().scenes[id];
   if (!sc) { sys('Ошибка сцены: ' + id); return; }
   o.sceneId = id;
+  o.progress = (o.progress || 0) + 1;
   narrate(sc.text, sc.title);
   if (sc.effects && (!o.visited[id] || sc.once === false)) sc.effects.forEach((e) => applyEffect(e));
   o.visited[id] = true;
@@ -152,7 +242,7 @@ function choose(i) {
   if (!ch) return;
   DM.stopSpeaking();
   log({ type: 'player', text: ch.label, who: ch.check && ch.check.group ? 'Вся группа' : actor().name });
-  if (ch.go) return enterScene(ch.go);
+  if (ch.go) { enterScene(ch.go); rotate(); H.rerender(); return; }
   if (ch.check) {
     const { what, dc, group } = ch.check;
     let success;
@@ -175,7 +265,7 @@ function choose(i) {
       log({ type: 'roll', html: rollLine(c, `${chk.label} (СЛ ${dc})`, r, dc) });
       H.toast(`<div>${esc(c.name)} · ${esc(chk.label)}</div><div class="big ${success ? 'crit' : 'fumble'}">${r.total}</div><div>${success ? 'Успех!' : 'Провал'}</div>`, 1800);
     }
-    setTimeout(() => enterScene(success ? ch.ok : ch.fail), 600);
+    setTimeout(() => { enterScene(success ? ch.ok : ch.fail); rotate(); H.rerender(); }, 600);
     save(); H.rerender();
   }
 }
@@ -464,8 +554,13 @@ function panelHtml(sc, cb, t) {
   }
   const chs = visibleChoices(sc);
   const a = actor();
-  return `<div class="speaker-sel">Действует: ${party().map((c) => `<button data-o="actor:${c.id}" class="${a && a.id === c.id ? 'sel' : ''}">${esc(c.name.split(' ')[0])}</button>`).join('')}</div>
-    <div style="display:grid;gap:6px">${chs.map((ch, i) => `<button class="btn" style="text-align:left" data-o="choose:${i}">${ch.check ? '🎲 ' : '➤ '}${esc(ch.label)}${ch.check ? ` <span class="muted">(${esc(ch.check.what)}, СЛ ${ch.check.dc}${ch.check.group ? ', вся группа' : ''})</span>` : ''}</button>`).join('')}</div>`;
+  const strict = turnOrderOn() && party().length > 1;
+  const ps = a && personalAvailable(a);
+  const pq = a && questOf(a);
+  return `<div class="speaker-sel">${strict ? 'Ход:' : 'Действует:'} ${party().map((c) => `<button data-o="actor:${c.id}" class="${a && a.id === c.id ? 'sel' : ''}" ${strict && !(a && a.id === c.id) ? 'style="opacity:.45"' : ''}>${esc(c.name.split(' ')[0])}</button>`).join('')}
+      ${strict ? '<button data-o="skip">⏭ Пропустить</button>' : ''}</div>
+    ${pq && !pq.q.done ? `<div class="muted" style="margin-bottom:6px">⭐ ${esc(a.name.split(' ')[0])}: «${esc(pq.tpl.title)}» — шаг ${pq.q.step + 1}/3${ps ? '' : ' (откроется дальше по сюжету)'}</div>` : ''}
+    <div style="display:grid;gap:6px">${ps ? `<button class="btn" style="text-align:left;border-color:var(--gold)" data-o="personal">⭐ ${esc(ps.label)} <span class="muted">(личная история, ${esc(ps.what)}, СЛ ${ps.dc})</span></button>` : ''}${chs.map((ch, i) => `<button class="btn" style="text-align:left" data-o="choose:${i}">${ch.check ? '🎲 ' : '➤ '}${esc(ch.label)}${ch.check ? ` <span class="muted">(${esc(ch.check.what)}, СЛ ${ch.check.dc}${ch.check.group ? ', вся группа' : ''})</span>` : ''}</button>`).join('')}</div>`;
 }
 
 function bind(root) {
@@ -477,7 +572,11 @@ function bind(root) {
       case 'start': startAdventure(arg); break;
       case 'ai': state.mode = 'ai'; save(); H.rerender(); break;
       case 'menu': DM.stopSpeaking(); state.offline = blank(); save(); H.rerender(); break;
-      case 'actor': off().actor = arg; save(); H.rerender(); break;
+      case 'actor':
+        if (turnOrderOn() && party().length > 1 && arg !== actor().id) { H.toast(`Сейчас ход: ${esc(actor().name)}. Можно нажать «⏭ Пропустить».`); break; }
+        off().actor = arg; save(); H.rerender(); break;
+      case 'skip': sys(`${actor().name} пропускает ход`); rotate(); H.rerender(); break;
+      case 'personal': choosePersonal(); break;
       case 'sheet': H.openSheet(arg); break;
       case 'choose': choose(+arg); break;
       case 'target': off().combat.target = arg; save(); H.rerender(); break;

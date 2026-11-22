@@ -7,6 +7,7 @@ const defaults = () => ({
     model: 'claude-opus-5-5',
     effort: 'low',
     voiceOn: true,
+    turnOrder: true,
     voiceName: '',
     rate: 1.05,
     pitch: 0.9,
