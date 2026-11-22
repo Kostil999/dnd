@@ -4,6 +4,7 @@ import { RULES } from './rules.js';
 import { rollFormula, parseFormula, fmtMod, d20 } from './dice.js';
 import * as C from './character.js';
 import * as DM from './dm.js';
+import * as OFF from './offline.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
@@ -72,6 +73,7 @@ function renderGame() {
   $('#g-voice').onclick = () => { state.settings.voiceOn = !state.settings.voiceOn; if (!state.settings.voiceOn) DM.stopSpeaking(); save(); render(); };
   $('#g-stop').onclick = () => { DM.stopSpeaking(); DM.abortDm(); };
   $('#g-menu').onclick = gameMenu;
+  root.onclick = null;
 
   if (!party.length) {
     root.innerHTML = `<div style="padding:16px">
@@ -82,7 +84,14 @@ function renderGame() {
         <button class="btn primary" id="g-quick">⚡ Быстрый старт: 4 случайных героя</button><br><br>
         <button class="btn" id="g-tochars">🧝 Создать героев вручную</button>
       </div>
-      ${!state.settings.apiKey ? '<div class="card">🔑 Не забудьте указать API-ключ Anthropic во вкладке «Настройки».</div>' : ''}
+      <div class="card">
+        <h3>Кто будет мастером?</h3>
+        <div class="seg">
+          <button id="m-off" class="${state.mode === 'offline' ? 'sel' : ''}">📖 Без ИИ (бесплатно, офлайн)</button>
+          <button id="m-ai" class="${state.mode !== 'offline' ? 'sel' : ''}">🐉 ИИ-мастер</button>
+        </div>
+        <p class="muted">${state.mode === 'offline' ? 'Готовые и случайные приключения с озвучкой, проверками и боями. Ключ не нужен.' : 'ИИ сочиняет историю и отвечает на любые действия. Нужен API-ключ Anthropic (вкладка «Настройки»).'}</p>
+      </div>
     </div>`;
     $('#g-quick').onclick = () => {
       for (let i = 0; i < 4; i++) {
@@ -94,8 +103,12 @@ function renderGame() {
       toast('Создано 4 героя! Их можно отредактировать во вкладке «Герои».', 3000);
     };
     $('#g-tochars').onclick = () => switchTab('chars');
+    $('#m-off').onclick = () => { state.mode = 'offline'; save(); render(); };
+    $('#m-ai').onclick = () => { state.mode = 'ai'; save(); render(); };
     return;
   }
+
+  if (state.mode === 'offline') { OFF.render(root); return; }
 
   if (!ui.speaker || (ui.speaker !== 'all' && !party.find((c) => c.id === ui.speaker))) ui.speaker = party[0].id;
   const draft = $('#say')?.value || '';
@@ -146,12 +159,16 @@ function renderLog() {
       <label class="f">Завязка (по желанию)</label>
       <textarea id="hook" placeholder="Например: таверна в портовом городе, пропала дочь мэра…"></textarea>
       <br><br><button class="btn primary" id="g-start" ${ui.busy ? 'disabled' : ''}>🐉 Начать приключение</button>
+      ${!state.settings.apiKey ? '<p class="muted">🔑 Для ИИ-мастера нужен API-ключ (вкладка «Настройки»).</p>' : ''}
+      <br><br><button class="btn" id="g-offline">📖 Играть без ИИ (бесплатно, офлайн)</button>
     </div>`;
   }
   entries.forEach((e, i) => { html += renderEntry(e, i); });
   log.innerHTML = html;
   const st = $('#g-start');
   if (st) st.onclick = () => startAdventure($('#hook').value.trim());
+  const go = $('#g-offline');
+  if (go) go.onclick = () => { state.mode = 'offline'; save(); renderGame(); };
   log.onclick = (e) => {
     const rq = e.target.closest('[data-req]');
     if (rq) {
@@ -443,12 +460,28 @@ function doRequestedRoll(ei, ri) {
 }
 
 function gameMenu() {
+  if (state.mode === 'offline') {
+    modal(`<h3>Меню (мастер без ИИ)</h3><div style="display:grid;gap:8px">
+      <button class="btn" data-m="repeat">🔁 Повторить последний рассказ</button>
+      <button class="btn" data-m="list">📚 Выбрать другое приключение</button>
+      <button class="btn" data-m="ai">🐉 Переключиться на ИИ-мастера</button>
+      <button class="btn" data-m="close">Закрыть</button></div>`, (e) => {
+      const m = e.target.closest('[data-m]')?.dataset.m;
+      if (!m) return;
+      closeModal();
+      if (m === 'repeat') OFF.repeatLast();
+      if (m === 'list' && confirm('Выйти из текущего приключения?')) { OFF.quit(); renderGame(); }
+      if (m === 'ai') { DM.stopSpeaking(); state.mode = 'ai'; save(); renderGame(); }
+    });
+    return;
+  }
   modal(`
     <h3>Меню игры</h3>
     <div style="display:grid;gap:8px">
       <button class="btn" data-m="repeat">🔁 Повторить последний рассказ</button>
       <button class="btn" data-m="undo">↩️ Отменить последний ход</button>
       <button class="btn" data-m="sheets">📋 Отправить мастеру листы персонажей</button>
+      <button class="btn" data-m="offline">📖 Играть без ИИ</button>
       <button class="btn" data-m="compress">🗜 Сжать историю (дешевле и быстрее)</button>
       <button class="btn danger" data-m="new">🆕 Новое приключение</button>
       <button class="btn" data-m="close">Закрыть</button>
@@ -464,6 +497,8 @@ function gameMenu() {
     } else if (m === 'sheets') {
       state.game.partyHash = '';
       toast('Листы будут отправлены с вашим следующим сообщением');
+    } else if (m === 'offline') {
+      DM.stopSpeaking(); state.mode = 'offline'; save(); renderGame();
     } else if (m === 'compress') {
       compressHistory();
     } else if (m === 'new') {
@@ -1181,4 +1216,7 @@ if (window.speechSynthesis) speechSynthesis.addEventListener?.('voiceschanged', 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 // продолжить незаконченный стрим после перезагрузки нельзя — убираем «висящие» записи
 state.game.log = state.game.log.filter((e) => !e.streaming);
+if (!state.mode) state.mode = state.settings.apiKey ? 'ai' : 'offline';
+OFF.setHelpers({ toast, rerender: () => { if (ui.tab === 'game') renderGame(); }, openSheet: (id) => showQuickSheet(id) });
+OFF.resume();
 render();
