@@ -14,9 +14,15 @@ export function setHelpers(h) { H = { ...H, ...h }; }
 const party = () => state.party.map((id) => state.characters.find((c) => c.id === id)).filter(Boolean);
 const byId = (id) => state.characters.find((c) => c.id === id);
 const off = () => state.offline || (state.offline = blank());
-function blank() { return { advId: null, custom: null, sceneId: null, flags: {}, visited: {}, log: [], combat: null, ended: null, actor: null, quests: {}, progress: 0 }; }
+function blank() { return { advId: null, custom: null, sceneId: null, flags: {}, visited: {}, log: [], combat: null, ended: null, actor: null, quests: {}, progress: 0, pos: {}, done: {}, with: {} }; }
 const adv = () => off().custom || ADVENTURES.find((a) => a.id === off().advId);
-const scene = () => adv()?.scenes[off().sceneId];
+// У каждого героя своя позиция в истории: группа может разделяться
+const posOf = (c) => (off().pos && off().pos[c.id]) || off().sceneId;
+const active = () => party().filter((x) => !(off().done || {})[x.id]);
+const here = (c) => active().filter((x) => posOf(x) === posOf(c));
+const names = (list) => { const n = list.map((c) => c.name.split(' ')[0]); return n.length > 1 ? n.slice(0, -1).join(', ') + ' и ' + n[n.length - 1] : (n[0] || ''); };
+const cbHeroes = () => { const cb = off().combat; return cb && cb.heroes ? cb.heroes.map(byId).filter(Boolean) : party(); };
+const scene = () => { const a = actor(); return adv()?.scenes[a ? posOf(a) : off().sceneId]; };
 
 function log(entry) { off().log.push(entry); if (off().log.length > 300) off().log.splice(0, 50); save(); }
 function narrate(text, title) { log({ type: 'dm', title, text }); DM.speak(text); }
@@ -25,7 +31,8 @@ function sys(text) { log({ type: 'sys', text }); }
 function actor() {
   const p = party();
   let c = byId(off().actor);
-  if (!c || !p.includes(c)) c = p.find((x) => x.hpCur > 0) || p[0];
+  const done = off().done || {};
+  if (!c || !p.includes(c) || done[c.id]) c = p.find((x) => x.hpCur > 0 && !done[x.id]) || p.find((x) => !done[x.id]) || p[0];
   return c;
 }
 
@@ -36,14 +43,23 @@ function rotate(announce = true) {
   const p = party();
   if (!p.length) return;
   const cur0 = actor();
+  const fromPos = cur0 ? posOf(cur0) : null;
   let i = p.indexOf(cur0);
+  const done = off().done || {};
   for (let k = 1; k <= p.length; k++) {
     const c = p[(i + k) % p.length];
-    if (c.hpCur > 0 && !isDead(c)) { off().actor = c.id; break; }
+    if (c.hpCur > 0 && !isDead(c) && !done[c.id]) { off().actor = c.id; break; }
   }
   save();
   const o = off();
-  if (announce && !o.combat && !o.ended && p.length > 1) DM.speak(`${actor().name.split(' ')[0]}, твой ход.`);
+  const a = actor();
+  if (!announce || o.combat || o.ended || p.length < 2 || !a) return;
+  if (posOf(a) !== fromPos) {
+    // герой в другом месте — напоминаем, где он и кто рядом
+    const sc = adv().scenes[posOf(a)];
+    const others = here(a).filter((x) => x !== a);
+    narrate(`${a.name.split(' ')[0]}, тем временем ты — здесь: ${sc.title}.${others.length ? ` Рядом с тобой ${names(others)}.` : ' Ты здесь один.'} ${sc.text}`, `📍 ${sc.title} · ${a.name.split(' ')[0]}`);
+  } else DM.speak(`${a.name.split(' ')[0]}, твой ход.`);
 }
 
 // ---------- Личные сюжетные линии ----------
@@ -154,29 +170,39 @@ export function startAdventure(id) {
   sys(`— ${adv().title} —`);
   assignQuests();
   o.actor = party()[0]?.id;
-  enterScene(adv().start);
+  enterScene(adv().start, party());
 }
 
-function enterScene(id) {
+function enterScene(id, movers) {
   const o = off();
   const sc = adv().scenes[id];
   if (!sc) { sys('Ошибка сцены: ' + id); return; }
+  movers = (movers && movers.length ? movers : [actor()]).filter(Boolean);
+  o.pos = o.pos || {}; o.done = o.done || {};
+  movers.forEach((c) => { o.pos[c.id] = id; });
   o.sceneId = id;
   o.progress = (o.progress || 0) + 1;
-  narrate(sc.text, sc.title);
-  if (sc.effects && (!o.visited[id] || sc.once === false)) sc.effects.forEach((e) => applyEffect(e));
+  // мастер обращается к героям по именам
+  narrate(`${names(movers)}. ${sc.text}`, `${sc.title} · ${names(movers)}`);
+  if (sc.effects && (!o.visited[id] || sc.once === false)) sc.effects.forEach((e) => applyEffect(e, movers));
   o.visited[id] = true;
-  if (sc.combat) startCombat(sc.combat);
-  if (sc.end) {
-    o.ended = sc.end;
-    sys(sc.end === 'win' ? '🏆 Приключение пройдено!' : '💀 Приключение окончено');
+  if (sc.combat) startCombat(sc.combat, movers);
+  if (sc.end === 'win') {
+    o.ended = 'win';
+    sys('🏆 Приключение пройдено!');
+  } else if (sc.end) {
+    movers.forEach((c) => { o.done[c.id] = sc.end; });
+    if (!active().length) { o.ended = 'lose'; sys('💀 Приключение окончено'); }
+    else { sys(`${names(movers)} выбывают из приключения… Остальные герои продолжают!`); rotate(); }
   }
   save();
   H.rerender();
 }
 
-function applyEffect(e) {
-  const targets = e.who === 'all' ? party() : [actor()].filter(Boolean);
+function applyEffect(e, movers) {
+  const group = movers && movers.length ? movers : party();
+  const a = actor();
+  const targets = e.who === 'all' ? group : [group.includes(a) ? a : group[0]].filter(Boolean);
   switch (e.type) {
     case 'hp': {
       const notes = targets.map((c) => {
@@ -189,9 +215,9 @@ function applyEffect(e) {
       break;
     }
     case 'xp': {
-      const p = party();
+      const p = group;
       p.forEach((c) => { c.xp = (Number(c.xp) || 0) + e.amount; });
-      sys(`Каждый герой получает ${e.amount} опыта` + (p.some((c) => XP[c.level] && c.xp >= XP[c.level]) ? ' — кто-то может повысить уровень!' : ''));
+      sys(`${names(p)}: +${e.amount} опыта` + (p.some((c) => XP[c.level] && c.xp >= XP[c.level]) ? ' — кто-то может повысить уровень!' : ''));
       break;
     }
     case 'gold': {
@@ -211,7 +237,7 @@ function applyEffect(e) {
     }
     case 'flag': off().flags[e.flag] = true; break;
     case 'rest':
-      party().forEach((c) => {
+      group.forEach((c) => {
         if (e.long) { c.hpCur = c.hpMax; c.slotsUsed = []; c.hdUsed = Math.max(0, (c.hdUsed || 0) - Math.max(1, Math.floor(c.level / 2))); c.conditions = removeCond(c.conditions, 'Без сознания'); }
         else if (c.classId === 'warlock') c.slotsUsed = [];
         if (c.hpCur === 0) healHero(c, 1);
@@ -241,13 +267,18 @@ function choose(i) {
   const ch = visibleChoices(sc)[i];
   if (!ch) return;
   DM.stopSpeaking();
-  log({ type: 'player', text: ch.label, who: ch.check && ch.check.group ? 'Вся группа' : actor().name });
-  if (ch.go) { enterScene(ch.go); rotate(); H.rerender(); return; }
+  const a = actor();
+  const isGroup = ch.check && ch.check.group;
+  // кто идёт: сам герой + те, кого он позвал с собой; групповое действие — все, кто рядом
+  const movers = isGroup ? here(a) : [a, ...here(a).filter((x) => x !== a && off().with?.[x.id])];
+  off().with = {};
+  log({ type: 'player', text: ch.label, who: names(movers) });
+  if (ch.go) { enterScene(ch.go, movers); rotate(); H.rerender(); return; }
   if (ch.check) {
     const { what, dc, group } = ch.check;
     let success;
     if (group) {
-      const p = party().filter((c) => c.hpCur > 0);
+      const p = movers.filter((c) => c.hpCur > 0);
       const lines = []; let okCount = 0;
       p.forEach((c) => {
         const chk = C.resolveCheck(c, what);
@@ -265,7 +296,7 @@ function choose(i) {
       log({ type: 'roll', html: rollLine(c, `${chk.label} (СЛ ${dc})`, r, dc) });
       H.toast(`<div>${esc(c.name)} · ${esc(chk.label)}</div><div class="big ${success ? 'crit' : 'fumble'}">${r.total}</div><div>${success ? 'Успех!' : 'Провал'}</div>`, 1800);
     }
-    setTimeout(() => { enterScene(success ? ch.ok : ch.fail); rotate(); H.rerender(); }, 600);
+    setTimeout(() => { enterScene(success ? ch.ok : ch.fail, movers); rotate(); H.rerender(); }, 600);
     save(); H.rerender();
   }
 }
@@ -276,8 +307,8 @@ const MISS = ['промахивается', 'удар приходится в п
 const MON_HIT = ['бросается и ранит', 'с рыком атакует и задевает', 'наносит жестокий удар по', 'вгрызается в'];
 const MON_MISS = ['атакует, но промахивается по', 'замахивается, но не попадает по', 'бьёт мимо —'];
 
-function startCombat(def) {
-  const p = party();
+function startCombat(def, heroes) {
+  const p = (heroes && heroes.length ? heroes : party()).filter((c) => !isDead(c));
   const lvl = p.reduce((s, c) => s + c.level, 0) / Math.max(1, p.length);
   let keys = [...def.monsters];
   if (def.scale && p.length >= 4) keys.push(keys[0]);
@@ -299,7 +330,7 @@ function startCombat(def) {
     ...p.map((c) => ({ kind: 'hero', id: c.id, init: d20(C.initiative(c)).total, name: c.name })),
     ...mons.map((m) => ({ kind: 'mon', id: m.id, init: d20(m.dex).total, name: m.name })),
   ].sort((a, b) => b.init - a.init);
-  off().combat = { mons, order, turn: 0, round: 1, win: def.win, lose: def.lose, target: mons[0].id, dodge: {}, used: {} };
+  off().combat = { mons, order, turn: 0, round: 1, win: def.win, lose: def.lose, target: mons[0].id, dodge: {}, used: {}, heroes: p.map((c) => c.id) };
   log({ type: 'roll', html: `⚔️ <b>Бой!</b> Инициатива: ${order.map((x) => `${esc(x.name)} ${x.init}`).join(' · ')}` });
   DM.speak(`Бросайте инициативу! Первым ходит ${order[0].name}.`);
   save();
@@ -343,20 +374,22 @@ function checkEnd() {
   if (!cb) return true;
   if (cb.mons.every((m) => m.hp <= 0)) {
     const xp = cb.mons.reduce((s, m) => s + m.xp, 0);
-    const each = Math.floor(xp / Math.max(1, party().length));
-    party().forEach((c) => { c.xp = (Number(c.xp) || 0) + each; c.deathS = 0; c.deathF = 0; if (c.hpCur === 0) { healHero(c, 1); } });
+    const hs = cbHeroes();
+    const each = Math.floor(xp / Math.max(1, hs.length));
+    hs.forEach((c) => { c.xp = (Number(c.xp) || 0) + each; c.deathS = 0; c.deathF = 0; if (c.hpCur === 0) { healHero(c, 1); } });
     off().combat = null;
-    sys(`🏆 Победа! Каждый получает ${each} опыта.` + (party().some((c) => XP[c.level] && c.xp >= XP[c.level]) ? ' Кто-то может повысить уровень!' : ''));
+    sys(`🏆 Победа! ${names(hs)}: +${each} опыта каждому.` + (hs.some((c) => XP[c.level] && c.xp >= XP[c.level]) ? ' Кто-то может повысить уровень!' : ''));
     save();
-    setTimeout(() => enterScene(cb.win), 900);
+    setTimeout(() => enterScene(cb.win, hs), 900);
     H.rerender();
     return true;
   }
-  if (party().every((c) => c.hpCur <= 0)) {
+  if (cbHeroes().every((c) => c.hpCur <= 0)) {
+    const hs = cbHeroes();
     off().combat = null;
-    sys('Все герои пали…');
+    sys(`${names(hs)} ${hs.length > 1 ? 'пали' : 'пал(а)'} в бою…`);
     save();
-    setTimeout(() => enterScene(cb.lose), 900);
+    setTimeout(() => enterScene(cb.lose, hs), 900);
     H.rerender();
     return true;
   }
@@ -366,7 +399,7 @@ function checkEnd() {
 function monsterAct(m) {
   const cb = off().combat;
   if (!cb || m.hp <= 0) return;
-  const targets = party().filter((c) => c.hpCur > 0);
+  const targets = cbHeroes().filter((c) => c.hpCur > 0);
   if (!targets.length) return checkEnd();
   const t = pick(targets);
   const mode = cb.dodge[t.id] ? 'dis' : 'normal';
@@ -463,7 +496,7 @@ function heroAct(id) {
       say(`⚔️ ${esc(txt)} <span class="muted">(${r.total} против КД ${target.ac})</span>`, txt);
     }
   } else if (id === 'heal') {
-    const ally = party().filter((x) => !isDead(x)).sort((a, b) => a.hpCur / a.hpMax - b.hpCur / b.hpMax)[0];
+    const ally = cbHeroes().filter((x) => !isDead(x)).sort((a, b) => a.hpCur / a.hpMax - b.hpCur / b.hpMax)[0];
     const si = C.spellInfo(c);
     const n = rollFormula('1к8').total + C.mod(c, si.ab);
     healHero(ally, Math.max(1, n));
@@ -471,7 +504,7 @@ function heroAct(id) {
     used.action = true;
     say(`💚 ${esc(c.name)} лечит ${esc(ally.name)}: +${n} хитов (${ally.hpCur}/${ally.hpMax})`, `${c.name} касается ${ally.name}, и раны затягиваются. Плюс ${n} хитов.`);
   } else if (id === 'potion') {
-    const ally = party().filter((x) => !isDead(x)).sort((a, b) => a.hpCur / a.hpMax - b.hpCur / b.hpMax)[0];
+    const ally = cbHeroes().filter((x) => !isDead(x)).sort((a, b) => a.hpCur / a.hpMax - b.hpCur / b.hpMax)[0];
     const n = rollFormula('2к4+2').total;
     healHero(ally, n);
     c.equipment = c.equipment.replace(/зелье лечения\n?/i, '').trim();
@@ -518,6 +551,7 @@ export function render(root) {
       const active = cb ? (t && t.kind === 'hero' && t.id === c.id) : actor()?.id === c.id;
       return `<button class="pchip ${active ? 'sel' : ''}" data-o="sheet:${c.id}">
         <b>${esc(c.emoji)} ${esc(c.name.split(' ')[0])}</b>
+        ${o.sceneId && !cb ? `<span class="muted" style="display:block;font-size:.7rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px">${o.done?.[c.id] ? '⛓ выбыл(а)' : '📍 ' + esc(adv().scenes[posOf(c)]?.title || '')}</span>` : ''}
         <span class="muted">${isDead(c) ? '☠️ погиб' : `❤ ${c.hpCur}/${c.hpMax} · 🛡 ${C.ac(c)}`}</span>
         <div class="hpbar"><i style="width:${pct}%;background:${pct < 30 ? 'var(--red)' : pct < 60 ? 'var(--gold)' : 'var(--green)'}"></i></div></button>`;
     }).join('')}</div>
@@ -559,8 +593,19 @@ function panelHtml(sc, cb, t) {
   const pq = a && questOf(a);
   return `<div class="speaker-sel">${strict ? 'Ход:' : 'Действует:'} ${party().map((c) => `<button data-o="actor:${c.id}" class="${a && a.id === c.id ? 'sel' : ''}" ${strict && !(a && a.id === c.id) ? 'style="opacity:.45"' : ''}>${esc(c.name.split(' ')[0])}</button>`).join('')}
       ${strict ? '<button data-o="skip">⏭ Пропустить</button>' : ''}</div>
+    ${(() => {
+      if (!a) return '';
+      const others = here(a).filter((x) => x !== a);
+      const away = active().filter((x) => posOf(x) !== posOf(a));
+      let h = `<div class="muted" style="margin-bottom:6px">📍 <b>${esc(sc.title)}</b>: ${esc(a.name.split(' ')[0])}${others.length ? `, рядом: ${esc(names(others))}` : ' — здесь больше никого'}${away.length ? ` · в другом месте: ${esc(names(away))}` : ''}</div>`;
+      if (others.length) {
+        h += `<div class="speaker-sel">Взять с собой: ${others.map((x) => `<button data-o="with:${x.id}" class="${off().with?.[x.id] ? 'sel' : ''}">${off().with?.[x.id] ? '✓ ' : ''}${esc(x.name.split(' ')[0])}</button>`).join('')}</div>
+          <div class="muted" style="margin-bottom:6px;font-size:.78rem">Кого не отметили — останутся здесь и решат сами в свой ход.</div>`;
+      }
+      return h;
+    })()}
     ${pq && !pq.q.done ? `<div class="muted" style="margin-bottom:6px">⭐ ${esc(a.name.split(' ')[0])}: «${esc(pq.tpl.title)}» — шаг ${pq.q.step + 1}/3${ps ? '' : ' (откроется дальше по сюжету)'}</div>` : ''}
-    <div style="display:grid;gap:6px">${ps ? `<button class="btn" style="text-align:left;border-color:var(--gold)" data-o="personal">⭐ ${esc(ps.label)} <span class="muted">(личная история, ${esc(ps.what)}, СЛ ${ps.dc})</span></button>` : ''}${chs.map((ch, i) => `<button class="btn" style="text-align:left" data-o="choose:${i}">${ch.check ? '🎲 ' : '➤ '}${esc(ch.label)}${ch.check ? ` <span class="muted">(${esc(ch.check.what)}, СЛ ${ch.check.dc}${ch.check.group ? ', вся группа' : ''})</span>` : ''}</button>`).join('')}</div>`;
+    <div style="display:grid;gap:6px">${ps ? `<button class="btn" style="text-align:left;border-color:var(--gold)" data-o="personal">⭐ ${esc(ps.label)} <span class="muted">(личная история, ${esc(ps.what)}, СЛ ${ps.dc})</span></button>` : ''}${chs.map((ch, i) => `<button class="btn" style="text-align:left" data-o="choose:${i}">${ch.check ? '🎲 ' : '➤ '}${esc(ch.label)}${ch.check ? ` <span class="muted">(${esc(ch.check.what)}, СЛ ${ch.check.dc}${ch.check.group ? ', все, кто рядом' : ''})</span>` : ''}</button>`).join('')}</div>`;
 }
 
 function bind(root) {
@@ -577,6 +622,7 @@ function bind(root) {
         off().actor = arg; save(); H.rerender(); break;
       case 'skip': sys(`${actor().name} пропускает ход`); rotate(); H.rerender(); break;
       case 'personal': choosePersonal(); break;
+      case 'with': { const w = off().with || (off().with = {}); w[arg] = !w[arg]; save(); H.rerender(); break; }
       case 'sheet': H.openSheet(arg); break;
       case 'choose': choose(+arg); break;
       case 'target': off().combat.target = arg; save(); H.rerender(); break;

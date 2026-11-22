@@ -127,6 +127,7 @@ function renderGame() {
       return `<button class="pchip ${c.id === ui.speaker ? 'sel' : ''}" data-pc="${c.id}">
         <b>${esc(c.emoji)} ${esc(c.name.split(' ')[0])}</b>
         <span class="muted">❤ ${c.hpCur}/${c.hpMax}${c.hpTemp ? '+' + c.hpTemp : ''} · 🛡 ${C.ac(c)}</span>
+        ${c.location ? `<span class="muted" style="display:block;font-size:.7rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px">📍 ${esc(c.location)}</span>` : ''}
         <div class="hpbar"><i style="width:${pct}%;background:${pct < 30 ? 'var(--red)' : pct < 60 ? 'var(--gold)' : 'var(--green)'}"></i></div>
       </button>`;
     }).join('')}</div>
@@ -275,7 +276,7 @@ function systemPrefix(force = false) {
 
 async function startAdventure(hook) {
   state.game.started = true;
-  const text = `${systemPrefix(true)}\n\n[Система] Начинаем новую кампанию.${hook ? ' Пожелания игроков к завязке: ' + hook : ''} Представь мир и начни с яркой завязки, которая сразу вовлекает всех героев. Кратко познакомь героев друг с другом через сцену. Придумай каждому герою личную сюжетную линию (метки [[ЦЕЛЬ: …]]) и передай ход первому герою (метка [[ХОД: …]]).`;
+  const text = `${systemPrefix(true)}\n\n[Система] Начинаем новую кампанию.${hook ? ' Пожелания игроков к завязке: ' + hook : ''} Представь мир и начни с яркой завязки, которая сразу вовлекает всех героев. Кратко познакомь героев друг с другом через сцену. Придумай каждому герою личную сюжетную линию (метки [[ЦЕЛЬ: …]]), отметь, где находится каждый герой (метки [[МЕСТО: …]]), и передай ход первому герою (метка [[ХОД: …]]).`;
   pushLog({ type: 'sys', text: '— Начало приключения —' });
   await runDm(text);
 }
@@ -426,6 +427,9 @@ function applyTags(entry) {
         if (c) setTurn(c.id);
         break;
       }
+      case 'МЕСТО':
+        targetsFor(who).forEach((c) => { c.location = val || ''; });
+        break;
       case 'ЦЕЛЬ':
         targetsFor(who).forEach((c) => { c.quest = val || ''; notes.push(`⭐ ${c.name}: ${val}`); });
         break;
@@ -646,7 +650,8 @@ function showQuickSheet(id, keepScroll = false) {
   modal(`
     <div class="row" style="flex-wrap:nowrap"><div class="char-card"><div class="av">${esc(c.emoji)}</div></div>
       <div class="grow"><h3 style="margin:0">${esc(c.name)}</h3>
-      <div class="muted">${esc(r.name)} · ${esc(k.name)} ${c.level} ур.${c.player ? ' · ' + esc(c.player) : ''}</div></div>
+      <div class="muted">${esc(r.name)} · ${esc(k.name)} ${c.level} ур.${c.player ? ' · ' + esc(c.player) : ''}</div>
+      ${c.location ? `<div class="muted">📍 ${esc(c.location)}</div>` : ''}</div>
       <button class="btn icon" data-q="close">✕</button></div>
     <div class="grid3" style="margin:10px 0">
       <div class="stat-box"><div class="v">${c.hpCur}/${c.hpMax}${c.hpTemp ? '+' + c.hpTemp : ''}</div><div class="l">Хиты</div><div class="hpbar"><i style="width:${pct}%;background:${pct < 30 ? 'var(--red)' : pct < 60 ? 'var(--gold)' : 'var(--green)'}"></i></div></div>
@@ -1319,7 +1324,7 @@ function renderSettings() {
         <button class="btn danger" id="newgame">Сбросить приключение</button>
       </div>
       <p class="muted">Экспорт сохраняет героев и историю в файл (без API-ключа).</p>
-      <p class="muted">Версия приложения: 7</p>
+      <p class="muted">Версия приложения: 8</p>
       <input type="file" id="impfile" accept=".json,application/json" style="display:none">
     </div>`;
   root.oninput = (e) => {

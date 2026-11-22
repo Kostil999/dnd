@@ -45,6 +45,7 @@ export function save(now = false) {
 }
 
 export function resetGame() {
+  state.characters.forEach((c) => { c.location = ''; });
   state.game = { messages: [], log: [], partyHash: '', started: false };
   save(true);
 }
