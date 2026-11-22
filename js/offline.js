@@ -426,7 +426,7 @@ export function render(root) {
     <div id="party-bar">${p.map((c) => {
       const pct = Math.max(0, Math.min(100, (c.hpCur / Math.max(1, c.hpMax)) * 100));
       const active = cb ? (t && t.kind === 'hero' && t.id === c.id) : actor()?.id === c.id;
-      return `<button class="pchip ${active ? 'sel' : ''}" data-o="${cb ? 'sheet' : 'actor'}:${c.id}">
+      return `<button class="pchip ${active ? 'sel' : ''}" data-o="sheet:${c.id}">
         <b>${esc(c.emoji)} ${esc(c.name.split(' ')[0])}</b>
         <span class="muted">${isDead(c) ? '☠️ погиб' : `❤ ${c.hpCur}/${c.hpMax} · 🛡 ${C.ac(c)}`}</span>
         <div class="hpbar"><i style="width:${pct}%;background:${pct < 30 ? 'var(--red)' : pct < 60 ? 'var(--gold)' : 'var(--green)'}"></i></div></button>`;

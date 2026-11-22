@@ -101,7 +101,7 @@ export function applyClassDefaults(c) {
   c.armorId = k.defaultArmor || 'none';
   if (k.id === 'fighter' || k.id === 'paladin') c.armorId = 'chainmail';
   c.shield = !!k.shield;
-  c.equipment = k.equipment + '\n' + 'Предыстория: ' + bg(c).extra;
+  c.equipment = k.equipment.split(/,\s*/).join('\n');
   c.attacks = defaultAttacks(c);
   c.emoji = CLASS_EMOJI[k.id] || '🛡️';
   // убрать навыки, которых нет в списке класса

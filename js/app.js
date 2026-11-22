@@ -549,37 +549,129 @@ async function compressHistory() {
   ui.busy = false; save(); renderGame();
 }
 
-function showQuickSheet(id) {
+// Предметы инвентаря: по строкам и запятым, без служебной строки предыстории
+function invItems(c) {
+  return String(c.equipment || '').split(/\n|,\s*/).map((x) => x.trim()).filter((x) => x && !/^Предыстория:/.test(x));
+}
+
+function showQuickSheet(id, keepScroll = false) {
   const c = charById(id);
   if (!c) return;
+  const k = C.klass(c); const r = C.race(c); const b = C.bg(c);
   const si = C.spellInfo(c);
+  const tab = ui.sheetTab || 'stats';
+  const prevScroll = keepScroll ? ($('#modal .sheet')?.scrollTop || 0) : 0;
+  const pct = Math.max(0, Math.min(100, (c.hpCur / Math.max(1, c.hpMax)) * 100));
+  const tabs = [['stats', '💪 Характеристики'], ['abil', '✨ Способности'], ['inv', '🎒 Инвентарь']];
+
+  let body = '';
+  if (tab === 'stats') {
+    body = `
+      <div class="abil-grid">${ABILITIES.map((a) => `<button class="abil" data-q="ab:${a.id}"><div class="nm">${a.name}</div><div class="mod">${fmtMod(C.mod(c, a.id))}</div><div class="det">${C.score(c, a.id)}</div></button>`).join('')}</div>
+      <h4>Спасброски</h4>
+      ${ABILITIES.map((a) => `<div class="skill-row" data-q="sv:${a.id}"><span class="val">${fmtMod(C.saveMod(c, a.id))}</span><span class="nm">${k.saves.includes(a.id) ? '● ' : ''}${a.name}</span></div>`).join('')}
+      <h4>Навыки <span class="muted">(● — владение, нажмите, чтобы бросить)</span></h4>
+      ${SKILLS.map((s) => `<div class="skill-row" data-q="sk:${s.id}"><span class="val">${fmtMod(C.skillMod(c, s.id))}</span><span class="nm">${C.allSkillProfs(c).has(s.id) ? '● ' : ''}${s.name}${c.expertise.includes(s.id) ? ' ★' : ''}</span><span class="ab">${ABILITIES.find((a) => a.id === s.ab).short}</span></div>`).join('')}
+      <h4>Атаки <span class="muted">(нажмите — атака и урон)</span></h4>
+      ${c.attacks.map((a, i) => `<div class="skill-row" data-q="atk:${i}"><span class="val">${esc(a.bonus)}</span><span class="nm">${esc(a.name)}</span><span class="ab">${esc(a.dmg)}</span></div>`).join('') || '<p class="muted">Нет атак</p>'}
+      <p class="muted">Владения: доспехи — ${esc(k.armor)}; оружие — ${esc(k.weapons)}.</p>`;
+  } else if (tab === 'abil') {
+    const spells = c.spells.map((n) => SPELLS.find((x) => x.name === n) || { name: n, lvl: '?', desc: '' });
+    body = `
+      ${si ? `<h4>Заклинания</h4>
+        <p>${ABILITIES.find((a) => a.id === si.ab).name} · СЛ спасброска <b>${si.dc}</b> · атака <b>${fmtMod(si.atk)}</b></p>
+        <div class="slots">${si.slots.map((n, i) => n ? `<div class="slot">${i + 1} ур.: <span class="pips">${Array.from({ length: n }, (_, j) => `<span class="pip ${j < ((c.slotsUsed || [])[i] || 0) ? 'used' : ''}" data-q="slot:${i}:${j}"></span>`).join('')}</span></div>` : '').join('') || '<span class="muted">Ячеек пока нет</span>'}</div>
+        <p class="muted">Нажмите на кружок, чтобы отметить потраченную ячейку.</p>
+        ${[0, 1].map((l) => spells.filter((x) => x.lvl === l).length ? `<p class="muted">${l === 0 ? 'Заговоры' : '1 уровень'}</p>` + spells.filter((x) => x.lvl === l).map((x) => `<div class="spell-item"><span><b>${esc(x.name)}</b><br><span class="muted">${esc(x.desc)}</span></span></div>`).join('') : '').join('')}
+        ${c.customSpells ? `<p><b>Другие:</b> ${esc(c.customSpells)}</p>` : ''}
+        ${!spells.length && !c.customSpells ? '<p class="muted">Заклинания не выбраны</p>' : ''}` : ''}
+      <h4>${esc(k.name)} ${c.level} ур.</h4>
+      <ul>${C.features(c).map((f) => `<li><span class="muted">${f.lvl} ур.</span> ${esc(f.name)}</li>`).join('')}</ul>
+      <h4>${esc(r.name)}</h4>
+      <ul>${r.traits.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>
+      <h4>Предыстория: ${esc(b.name)}</h4>
+      <p>Умение «${esc(b.feature)}». ${esc(b.extra)}.</p>
+      ${[['Черты характера', c.traits], ['Идеалы', c.ideals], ['Привязанности', c.bonds], ['Слабости', c.flaws], ['Внешность', c.appearance], ['История', c.backstory], ['Заметки', c.notes]].filter(([, v]) => v).map(([t, v]) => `<p><b>${t}:</b> ${esc(v)}</p>`).join('')}`;
+  } else {
+    const items = invItems(c);
+    body = `
+      <div class="grid2">
+        <div class="stat-box"><div class="v">${Number(c.gold) || 0}</div><div class="l">Золото (зм)</div></div>
+        <div class="stat-box"><div class="v">${items.length}</div><div class="l">Предметов</div></div>
+      </div>
+      <div class="row" style="margin:8px 0">
+        <button class="btn small" data-q="gold:-10">−10 зм</button><button class="btn small" data-q="gold:-1">−1</button>
+        <button class="btn small" data-q="gold:1">+1</button><button class="btn small" data-q="gold:10">+10 зм</button>
+      </div>
+      <h4>Предметы</h4>
+      ${items.map((it, i) => `<div class="skill-row"><span class="nm">• ${esc(it)}</span>${/зелье лечения/i.test(it) ? `<button class="btn small" data-q="potion:${i}">🧪 Выпить</button>` : ''}<button class="btn small" data-q="delitem:${i}">✕</button></div>`).join('') || '<p class="muted">Пусто</p>'}
+      <div class="row" style="margin-top:8px;flex-wrap:nowrap"><input type="text" id="newitem" placeholder="Новый предмет"><button class="btn small" data-q="additem">+ Добавить</button></div>
+      <p class="muted">Доспех: ${esc(C.armor(c).name)}${c.shield ? ' + щит' : ''}.</p>`;
+  }
+
   modal(`
-    <div class="row"><h3 class="grow">${esc(c.emoji)} ${esc(c.name)}</h3><button class="btn small" data-q="edit">✏️ Лист</button></div>
-    <div class="muted">${esc(C.race(c).name)} · ${esc(C.klass(c).name)} ${c.level} ур.${c.conditions ? ' · ' + esc(c.conditions) : ''}</div>
+    <div class="row" style="flex-wrap:nowrap"><div class="char-card"><div class="av">${esc(c.emoji)}</div></div>
+      <div class="grow"><h3 style="margin:0">${esc(c.name)}</h3>
+      <div class="muted">${esc(r.name)} · ${esc(k.name)} ${c.level} ур.${c.player ? ' · ' + esc(c.player) : ''}</div></div>
+      <button class="btn icon" data-q="close">✕</button></div>
     <div class="grid3" style="margin:10px 0">
-      <div class="stat-box"><div class="v">${c.hpCur}/${c.hpMax}</div><div class="l">Хиты</div></div>
+      <div class="stat-box"><div class="v">${c.hpCur}/${c.hpMax}${c.hpTemp ? '+' + c.hpTemp : ''}</div><div class="l">Хиты</div><div class="hpbar"><i style="width:${pct}%;background:${pct < 30 ? 'var(--red)' : pct < 60 ? 'var(--gold)' : 'var(--green)'}"></i></div></div>
       <div class="stat-box"><div class="v">${C.ac(c)}</div><div class="l">КД</div></div>
-      <div class="stat-box"><div class="v">${fmtMod(C.initiative(c))}</div><div class="l">Инициатива</div></div>
+      <div class="stat-box" data-q="init"><div class="v">${fmtMod(C.initiative(c))}</div><div class="l">Инициатива 🎲</div></div>
+      <div class="stat-box"><div class="v">${C.speed(c)}</div><div class="l">Скорость, фт.</div></div>
+      <div class="stat-box"><div class="v">+${C.prof(c)}</div><div class="l">Бонус мастерства</div></div>
+      <div class="stat-box"><div class="v">${C.passive(c)}</div><div class="l">Пасс. внимат.</div></div>
     </div>
     <div class="row" style="margin-bottom:8px">
-      <button class="btn small" data-q="hp:-1">−1</button><button class="btn small" data-q="hp:-5">−5</button>
+      <button class="btn small" data-q="hp:-5">−5</button><button class="btn small" data-q="hp:-1">−1</button>
       <button class="btn small" data-q="hp:1">+1</button><button class="btn small" data-q="hp:5">+5</button>
-      <button class="btn small" data-q="init">🎲 Инициатива</button>
+      <span class="muted">Опыт: ${c.xp || 0}</span>
     </div>
-    <div class="abil-grid">${ABILITIES.map((a) => `<button class="abil" data-q="ab:${a.id}"><div class="nm">${a.short}</div><div class="mod">${fmtMod(C.mod(c, a.id))}</div><div class="det">${C.score(c, a.id)}</div></button>`).join('')}</div>
-    <h4>Навыки (нажмите, чтобы бросить)</h4>
-    ${SKILLS.map((s) => `<div class="skill-row" data-q="sk:${s.id}"><span class="val">${fmtMod(C.skillMod(c, s.id))}</span><span class="nm">${C.allSkillProfs(c).has(s.id) ? '● ' : ''}${s.name}</span><span class="ab">${ABILITIES.find((a) => a.id === s.ab).short}</span></div>`).join('')}
-    <h4>Атаки</h4>
-    ${c.attacks.map((a, i) => `<div class="skill-row" data-q="atk:${i}"><span class="val">${esc(a.bonus)}</span><span class="nm">${esc(a.name)}</span><span class="ab">${esc(a.dmg)}</span></div>`).join('') || '<p class="muted">Нет</p>'}
-    ${si ? `<p class="muted">Заклинания: СЛ ${si.dc}, атака ${fmtMod(si.atk)}</p>` : ''}
+    ${c.conditions ? `<p>⚠️ Состояния: <b>${esc(c.conditions)}</b></p>` : ''}
+    <div class="seg" style="position:sticky;top:-16px;z-index:2;margin-bottom:10px">${tabs.map(([t, l]) => `<button data-q="tab:${t}" class="${tab === t ? 'sel' : ''}">${l}</button>`).join('')}</div>
+    <div class="rules-body">${body}</div>
     <br><button class="btn" style="width:100%" data-q="close">Закрыть</button>`, (e) => {
     const q = e.target.closest('[data-q]')?.dataset.q;
     if (!q) return;
-    if (q === 'close') return closeModal();
-    if (q === 'edit') { closeModal(); ui.editId = id; switchTab('chars'); return; }
-    if (q.startsWith('hp:')) { c.hpCur = Math.max(0, Math.min(c.hpMax, c.hpCur + Number(q.slice(3)))); save(); showQuickSheet(id); renderGame(); return; }
+    const [cmd, a1, a2] = q.split(':');
+    const refresh = () => { save(); showQuickSheet(id, true); if (ui.tab === 'game') renderGame(); };
+    if (cmd === 'close') return closeModal();
+    if (cmd === 'tab') { ui.sheetTab = a1; showQuickSheet(id); return; }
+    if (cmd === 'hp') {
+      const n = Number(a1);
+      if (n < 0) { const fromTemp = Math.min(c.hpTemp || 0, -n); c.hpTemp = (c.hpTemp || 0) - fromTemp; c.hpCur = Math.max(0, c.hpCur + n + fromTemp); }
+      else c.hpCur = Math.min(c.hpMax, c.hpCur + n);
+      return refresh();
+    }
+    if (cmd === 'gold') { c.gold = Math.max(0, (Number(c.gold) || 0) + Number(a1)); return refresh(); }
+    if (cmd === 'slot') {
+      const i = Number(a1); const j = Number(a2);
+      c.slotsUsed = c.slotsUsed || [];
+      c.slotsUsed[i] = j < (c.slotsUsed[i] || 0) ? j : j + 1;
+      return refresh();
+    }
+    if (cmd === 'delitem' || cmd === 'potion') {
+      const items = invItems(c);
+      const [removed] = items.splice(Number(a1), 1);
+      c.equipment = items.join('\n');
+      if (cmd === 'potion') {
+        const heal = rollFormula('2к4+2').total;
+        c.hpCur = Math.min(c.hpMax, c.hpCur + heal);
+        if (c.hpCur > 0) c.conditions = removeCond(c.conditions, 'Без сознания');
+        toast(`🧪 ${esc(c.name)}: +${heal} хитов`);
+      } else toast(`Убрано: ${esc(removed)}`);
+      return refresh();
+    }
+    if (cmd === 'additem') {
+      const v = $('#newitem').value.trim();
+      if (!v) return;
+      c.equipment = (c.equipment ? c.equipment + '\n' : '') + v;
+      return refresh();
+    }
     quickRoll(c, q);
   });
+  const sh = $('#modal .sheet');
+  if (sh) sh.scrollTop = prevScroll;
 }
 
 // Бросок со страницы персонажа (лист или быстрый лист)
@@ -1192,7 +1284,7 @@ function renderSettings() {
         <button class="btn danger" id="newgame">Сбросить приключение</button>
       </div>
       <p class="muted">Экспорт сохраняет героев и историю в файл (без API-ключа).</p>
-      <p class="muted">Версия приложения: 5</p>
+      <p class="muted">Версия приложения: 6</p>
       <input type="file" id="impfile" accept=".json,application/json" style="display:none">
     </div>`;
   root.oninput = (e) => {
