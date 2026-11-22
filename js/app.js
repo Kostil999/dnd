@@ -1166,7 +1166,9 @@ function renderSettings() {
       <h3>🔊 Голос</h3>
       <label class="row"><input type="checkbox" data-sb="voiceOn" ${s.voiceOn ? 'checked' : ''}> Мастер говорит вслух</label>
       <label class="f">Голос ${vs.length ? '' : '(русские голоса не найдены — установите русский голос в настройках телефона)'}</label>
-      <select data-s="voiceName"><option value="">Авто</option>${vs.map((v) => `<option ${v.name === s.voiceName ? 'selected' : ''}>${esc(v.name)}</option>`).join('')}</select>
+      <select data-s="voiceName"><option value="">Авто (лучший из найденных)</option>${vs.map((v) => `<option value="${esc(DM.voiceId(v))}" ${DM.voiceId(v) === s.voiceName ? 'selected' : ''}>${esc(DM.voiceLabel(v))}</option>`).join('')}</select>
+      <div class="row" style="margin:6px 0"><button class="btn small" id="vrefresh">🔄 Обновить список</button><span class="muted">Русских голосов: ${vs.length} (всего в телефоне: ${DM.allVoicesCount()})</span></div>
+      <p class="muted">Хотите голос приятнее? На iPhone: Настройки → Универсальный доступ → Устная речь → Голоса → Русский → скачайте «Милена (улучшенный)». Затем полностью закройте игру (смахните из списка приложений), откройте снова и выберите голос с пометкой «улучшенный».</p>
       <label class="f">Скорость речи: ${s.rate}</label><input type="range" min="0.6" max="1.6" step="0.05" data-s="rate" value="${s.rate}" style="width:100%">
       <label class="f">Высота голоса: ${s.pitch}</label><input type="range" min="0.5" max="1.5" step="0.05" data-s="pitch" value="${s.pitch}" style="width:100%">
       <button class="btn" id="vtest">▶️ Проверить голос</button>
@@ -1206,6 +1208,7 @@ function renderSettings() {
   root.onclick = (e) => {
     const id = e.target.id;
     if (id === 'vtest') { const was = s.voiceOn; s.voiceOn = true; DM.speak('Приветствую, искатели приключений! Ваша история начинается в таверне «Гарцующий грифон».', { flush: true }); s.voiceOn = was; }
+    if (id === 'vrefresh') { DM.refreshVoices(); renderSettings(); toast('Список голосов обновлён'); return; }
     if (id === 'exp') {
       const blob = new Blob([exportAll()], { type: 'application/json' });
       const a = document.createElement('a');
