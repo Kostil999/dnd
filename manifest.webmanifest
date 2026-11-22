@@ -1,0 +1,18 @@
+{
+  "name": "ДнД Мастер — ИИ мастер подземелий",
+  "short_name": "ДнД Мастер",
+  "description": "Игра в D&D 5e для 4 игроков с ИИ-мастером, генератором персонажей, кубиками и правилами",
+  "lang": "ru",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1b1420",
+  "theme_color": "#1b1420",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
