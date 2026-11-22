@@ -81,7 +81,10 @@ function renderGame() {
         <h2>Добро пожаловать, искатели приключений!</h2>
         <p>ИИ-мастер подземелий расскажет историю голосом, а вы говорите или пишете, что делают ваши герои.</p>
         <p class="muted">Сначала создайте до 4 персонажей и добавьте их в группу.</p>
-        <button class="btn primary" id="g-quick">⚡ Быстрый старт: 4 случайных героя</button><br><br>
+        <p><b>⚡ Быстрый старт — сколько игроков?</b></p>
+        <div class="row" style="justify-content:center;margin-bottom:12px">
+          ${[1, 2, 3, 4].map((n) => `<button class="btn primary" data-quick="${n}" style="min-width:56px">${n}</button>`).join('')}
+        </div>
         <button class="btn" id="g-tochars">🧝 Создать героев вручную</button>
       </div>
       <div class="card">
@@ -93,15 +96,17 @@ function renderGame() {
         <p class="muted">${state.mode === 'offline' ? 'Готовые и случайные приключения с озвучкой, проверками и боями. Ключ не нужен.' : 'ИИ сочиняет историю и отвечает на любые действия. Нужен API-ключ Anthropic (вкладка «Настройки»).'}</p>
       </div>
     </div>`;
-    $('#g-quick').onclick = () => {
-      for (let i = 0; i < 4; i++) {
+    root.querySelectorAll('[data-quick]').forEach((b) => b.onclick = () => {
+      const n = Number(b.dataset.quick);
+      for (let i = 0; i < n; i++) {
         const c = C.randomCharacter();
         c.player = `Игрок ${i + 1}`;
         state.characters.push(c); state.party.push(c.id);
       }
       save(); render();
-      toast('Создано 4 героя! Их можно отредактировать во вкладке «Герои».', 3000);
-    };
+      const word = n === 1 ? 'герой' : n < 5 ? 'героя' : 'героев';
+      toast(`Создано: ${n} ${word}! Их можно отредактировать во вкладке «Герои».`, 3000);
+    });
     $('#g-tochars').onclick = () => switchTab('chars');
     $('#m-off').onclick = () => { state.mode = 'offline'; save(); render(); };
     $('#m-ai').onclick = () => { state.mode = 'ai'; save(); render(); };
