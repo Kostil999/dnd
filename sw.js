@@ -1,5 +1,5 @@
 // Офлайн-кэш приложения (всё, кроме ИИ-мастера, работает без интернета)
-const CACHE = 'dnd-master-v9';
+const CACHE = 'dnd-master-v10';
 const ASSETS = [
   './', 'index.html', 'css/style.css', 'manifest.webmanifest',
   'js/app.js', 'js/store.js', 'js/data.js', 'js/rules.js', 'js/dice.js', 'js/character.js', 'js/dm.js', 'js/offline.js', 'js/adventures.js', 'js/adventures2.js',
