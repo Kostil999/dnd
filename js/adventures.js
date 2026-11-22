@@ -26,6 +26,15 @@ export const MONSTERS = {
   bandit_captain: { name: 'Атаман разбойников', ac: 15, hp: 45, atk: 5, dmg: '2к6+3', dex: 3, xp: 450, boss: true },
   necro: { name: 'Некромант', ac: 12, hp: 40, atk: 5, dmg: '2к8+2', dex: 2, xp: 450, boss: true },
   warchief: { name: 'Орочий вождь', ac: 16, hp: 50, atk: 6, dmg: '1к12+4', dex: 1, xp: 700, boss: true },
+  drowned: { name: 'Утопленник', ac: 8, hp: 22, atk: 3, dmg: '1к6+1', dex: -2, xp: 50 },
+  orc_shaman: { name: 'Орочий шаман', ac: 12, hp: 18, atk: 4, dmg: '2к6', dex: 1, xp: 100 },
+  animated_armor: { name: 'Оживший доспех', ac: 18, hp: 33, atk: 4, dmg: '1к6+2', dex: 0, xp: 200 },
+  mimic: { name: 'Мимик', ac: 12, hp: 40, atk: 5, dmg: '1к8+3', dex: 1, xp: 450 },
+  hag: { name: 'Болотная карга', ac: 17, hp: 40, atk: 5, dmg: '2к8+3', dex: 1, xp: 700, boss: true },
+  hag_weak: { name: 'Ослабевшая карга', ac: 14, hp: 22, atk: 4, dmg: '2к6+2', dex: 1, xp: 700, boss: true },
+  madmage: { name: 'Безумный маг Зандер', ac: 12, hp: 40, atk: 6, dmg: '3к6', dex: 2, xp: 700, boss: true },
+  madmage_weak: { name: 'Маг Зандер (борется с кристаллом)', ac: 11, hp: 22, atk: 5, dmg: '2к6', dex: 2, xp: 700, boss: true },
+  bandit_captain_weak: { name: 'Атаман Рыжий Вальд', ac: 15, hp: 35, atk: 5, dmg: '2к6+2', dex: 3, xp: 450, boss: true },
 };
 
 // ---------------- Готовое приключение ----------------
@@ -288,7 +297,8 @@ const ASH_MINE = {
   },
 };
 
-export const ADVENTURES = [ASH_MINE];
+import { MORE_ADVENTURES } from './adventures2.js';
+export const ADVENTURES = [ASH_MINE, ...MORE_ADVENTURES];
 
 // ---------------- Генератор случайного подземелья ----------------
 const pick = (a) => a[Math.floor(Math.random() * a.length)];

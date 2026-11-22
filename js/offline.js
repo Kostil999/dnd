@@ -232,6 +232,7 @@ function applyEffect(e, movers) {
       const c = actor();
       if ((Number(c.gold) || 0) < e.cost) { sys(`${c.name}: не хватает золота (${c.gold} зм)`); break; }
       c.gold -= e.cost; c.equipment = (c.equipment ? c.equipment + '\n' : '') + e.item;
+      if (e.flag) off().flags[e.flag] = true;
       sys(`${c.name} покупает ${e.item} (осталось ${c.gold} зм)`);
       break;
     }
@@ -252,9 +253,92 @@ function applyEffect(e, movers) {
 
 const XP = [0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000, 85000, 100000, 120000, 140000, 165000, 195000, 225000, 265000, 305000, 355000];
 
+// Местные действия: добавляются, если сюжетных вариантов меньше 4
+const GENERIC = [
+  { gen: 'search', label: 'Обыскать это место', check: { what: 'Анализ', dc: 12 } },
+  { gen: 'listen', label: 'Прислушаться и осмотреться', check: { what: 'Внимательность', dc: 12 } },
+  { gen: 'heal', label: 'Перевязать раны', check: { what: 'Медицина', dc: 10 } },
+  { gen: 'cheer', label: 'Подбодрить товарищей', check: { what: 'Убеждение', dc: 12 } },
+  { gen: 'plan', label: 'Обдумать план', repeat: true },
+  { gen: 'gear', label: 'Проверить снаряжение', repeat: true },
+  { gen: 'wait', label: 'Подождать и понаблюдать', repeat: true },
+];
+const MIN_CHOICES = 4;
+const genKey = (g) => `${posOf(actor())}|${actor()?.id}|${g}`;
 function visibleChoices(sc) {
   const f = off().flags;
-  return (sc.choices || []).filter((ch) => (!ch.if || f[ch.if]) && (!ch.ifnot || !f[ch.ifnot]));
+  const list = (sc.choices || []).filter((ch) => (!ch.if || f[ch.if]) && (!ch.ifnot || !f[ch.ifnot]));
+  if (!sc.choices || !sc.choices.length) return list;
+  const used = off().genUsed || {};
+  for (const g of GENERIC) {
+    if (list.length >= MIN_CHOICES) break;
+    if (!g.repeat && used[genKey(g.gen)]) continue;
+    list.push(g);
+  }
+  return list;
+}
+
+const FINDS = ['Факел', 'Моток верёвки', 'Старинная монета', 'Огниво', 'Кусок мела', 'Бурдюк с водой', 'Зелье лечения'];
+const HINTS = [
+  'Где-то впереди капает вода и скребутся когти — там кто-то есть.',
+  'Сквозняк тянет справа: похоже, там есть ещё один проход.',
+  'На полу свежие следы — кто-то прошёл здесь совсем недавно.',
+  'Вдалеке слышны голоса. Слов не разобрать, но говорящих несколько.',
+  'Пахнет дымом и жареным мясом. Чей-то лагерь неподалёку.',
+  'Тишина такая, что слышно собственное сердце. Слишком тихо.',
+];
+function doGeneric(g) {
+  const o = off();
+  const a = actor();
+  const name = a.name.split(' ')[0];
+  const others = here(a).filter((x) => x !== a);
+  o.genUsed = o.genUsed || {};
+  if (!g.repeat) o.genUsed[genKey(g.gen)] = true;
+  log({ type: 'player', who: a.name, text: g.label });
+  let ok = true;
+  if (g.check) {
+    const chk = C.resolveCheck(a, g.check.what);
+    const r = d20(chk.mod);
+    ok = r.total >= g.check.dc;
+    log({ type: 'roll', html: rollLine(a, `${chk.label} (СЛ ${g.check.dc})`, r, g.check.dc) });
+  }
+  let text = '';
+  if (g.gen === 'search') {
+    if (ok) {
+      const item = Math.random() < 0.5 ? null : pick(FINDS);
+      const gold = rollFormula('1к6').total;
+      a.gold = (Number(a.gold) || 0) + gold;
+      if (item) a.equipment = (a.equipment ? a.equipment + '\n' : '') + item;
+      text = `${name} обыскивает каждый угол и находит ${gold} зм${item ? ` и ещё кое-что: ${item.toLowerCase()}` : ''}.`;
+    } else text = `${name} обыскивает всё вокруг, но находит лишь пыль и паутину.`;
+  } else if (g.gen === 'listen') {
+    if (ok) { a.xp = (Number(a.xp) || 0) + 10; text = `${name} замирает и прислушивается. ${pick(HINTS)}`; }
+    else text = `${name} прислушивается, но ничего не может разобрать.`;
+  } else if (g.gen === 'heal') {
+    const t = [a, ...others].filter((x) => !isDead(x)).sort((x, y) => x.hpCur / x.hpMax - y.hpCur / y.hpMax)[0];
+    if (t.hpCur >= t.hpMax) text = `${name} проверяет повязки, но все целы и невредимы.`;
+    else if (ok) { const n = rollFormula('1к4+1').total; healHero(t, n); text = `${name} перевязывает раны${t === a ? '' : ` — ${t.name.split(' ')[0]} получает помощь`}. +${n} хитов.`; }
+    else text = `${name} пытается наложить повязку, но она тут же сползает.`;
+  } else if (g.gen === 'cheer') {
+    const ts = [a, ...others];
+    if (ok) { const n = rollFormula('1к4').total; ts.forEach((x) => { x.hpTemp = Math.max(x.hpTemp || 0, n); }); text = others.length ? `${name} подбадривает друзей, и ${names(ts)} чувствуют прилив сил: ${n} временных хитов.` : `${name} собирается с духом: ${n} временных хитов.`; }
+    else text = others.length ? `${name} пытается всех подбодрить, но шутка выходит неудачной.` : `${name} пытается собраться с духом, но тревога не отпускает.`;
+  } else if (g.gen === 'plan') {
+    const sc = scene();
+    const real = (sc.choices || []).filter((ch) => ch.check);
+    const hard = real.sort((x, y) => (y.check.dc || 0) - (x.check.dc || 0))[0];
+    text = hard ? `${name} обдумывает план. Самое рискованное здесь — «${hard.label}»: понадобится ${hard.check.what.toLowerCase()}.` : `${name} обдумывает следующий шаг. Похоже, здесь нужно просто решиться.`;
+  } else if (g.gen === 'gear') {
+    const items = String(a.equipment || '').split(/\n|,\s*/).map((x) => x.trim()).filter(Boolean);
+    const potions = items.filter((x) => /зелье лечения/i.test(x)).length;
+    text = `${name} проверяет снаряжение: ${items.length} предметов, ${Number(a.gold) || 0} золотых${potions ? `, зелий лечения: ${potions}` : ', зелий лечения нет'}. Хиты: ${a.hpCur} из ${a.hpMax}.`;
+  } else {
+    text = `${name} ждёт и наблюдает, давая другим время действовать.`;
+  }
+  narrate(text, `${scene().title} · ${name}`);
+  save();
+  rotate();
+  H.rerender();
 }
 
 function rollLine(c, label, r, dc) {
@@ -267,6 +351,7 @@ function choose(i) {
   const ch = visibleChoices(sc)[i];
   if (!ch) return;
   DM.stopSpeaking();
+  if (ch.gen) { doGeneric(ch); return; }
   const a = actor();
   const isGroup = ch.check && ch.check.group;
   // кто идёт: сам герой + те, кого он позвал с собой; групповое действие — все, кто рядом
@@ -605,7 +690,7 @@ function panelHtml(sc, cb, t) {
       return h;
     })()}
     ${pq && !pq.q.done ? `<div class="muted" style="margin-bottom:6px">⭐ ${esc(a.name.split(' ')[0])}: «${esc(pq.tpl.title)}» — шаг ${pq.q.step + 1}/3${ps ? '' : ' (откроется дальше по сюжету)'}</div>` : ''}
-    <div style="display:grid;gap:6px">${ps ? `<button class="btn" style="text-align:left;border-color:var(--gold)" data-o="personal">⭐ ${esc(ps.label)} <span class="muted">(личная история, ${esc(ps.what)}, СЛ ${ps.dc})</span></button>` : ''}${chs.map((ch, i) => `<button class="btn" style="text-align:left" data-o="choose:${i}">${ch.check ? '🎲 ' : '➤ '}${esc(ch.label)}${ch.check ? ` <span class="muted">(${esc(ch.check.what)}, СЛ ${ch.check.dc}${ch.check.group ? ', все, кто рядом' : ''})</span>` : ''}</button>`).join('')}</div>`;
+    <div style="display:grid;gap:6px">${ps ? `<button class="btn" style="text-align:left;border-color:var(--gold)" data-o="personal">⭐ ${esc(ps.label)} <span class="muted">(личная история, ${esc(ps.what)}, СЛ ${ps.dc})</span></button>` : ''}${chs.map((ch, i) => `<button class="btn" style="text-align:left${ch.gen ? ';opacity:.85' : ''}" data-o="choose:${i}">${ch.gen ? '◦ ' : ch.check ? '🎲 ' : '➤ '}${esc(ch.label)}${ch.check ? ` <span class="muted">(${esc(ch.check.what)}, СЛ ${ch.check.dc}${ch.check.group ? ', все, кто рядом' : ''})</span>` : ''}</button>`).join('')}</div>`;
 }
 
 function bind(root) {

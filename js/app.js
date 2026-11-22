@@ -1324,7 +1324,7 @@ function renderSettings() {
         <button class="btn danger" id="newgame">Сбросить приключение</button>
       </div>
       <p class="muted">Экспорт сохраняет героев и историю в файл (без API-ключа).</p>
-      <p class="muted">Версия приложения: 8</p>
+      <p class="muted">Версия приложения: 9</p>
       <input type="file" id="impfile" accept=".json,application/json" style="display:none">
     </div>`;
   root.oninput = (e) => {
