@@ -115,7 +115,10 @@ function renderGame() {
 
   if (state.mode === 'offline') { OFF.render(root); return; }
 
+  if (state.game.turnId) ui.speaker = state.game.turnId;
   if (!ui.speaker || (ui.speaker !== 'all' && !party.find((c) => c.id === ui.speaker))) ui.speaker = party[0].id;
+  const strict = state.settings.turnOrder !== false && party.length > 1;
+  const curName = ui.speaker === 'all' ? 'Вся группа' : (charById(ui.speaker)?.name.split(' ')[0] || '');
   const draft = $('#say')?.value || '';
 
   root.innerHTML = `
@@ -130,12 +133,14 @@ function renderGame() {
     <div id="log"></div>
     <div id="composer">
       <div class="speaker-sel">
-        ${party.map((c) => `<button data-spk="${c.id}" class="${c.id === ui.speaker ? 'sel' : ''}">${esc(c.name.split(' ')[0])}</button>`).join('')}
+        ${strict ? '<span style="align-self:center">Ход:</span>' : ''}
+        ${party.map((c) => `<button data-spk="${c.id}" class="${c.id === ui.speaker ? 'sel' : ''}" ${strict && c.id !== ui.speaker ? 'style="opacity:.45"' : ''}>${esc(c.name.split(' ')[0])}</button>`).join('')}
         <button data-spk="all" class="${ui.speaker === 'all' ? 'sel' : ''}">Вся группа</button>
+        ${strict ? '<button data-spk="skip">⏭ Пропустить</button>' : ''}
       </div>
       <div class="row">
         <button class="btn icon ${ui.listening ? 'on' : ''}" id="mic" title="Сказать голосом">🎤</button>
-        <textarea id="say" rows="1" placeholder="${state.game.started ? 'Что вы делаете?' : 'Нажмите «Начать приключение» или опишите, с чего начать…'}"></textarea>
+        <textarea id="say" rows="1" placeholder="${state.game.started ? (ui.speaker === 'all' ? 'Что делает группа?' : `${esc(curName)}, что ты делаешь?`) : 'Нажмите «Начать приключение» или опишите, с чего начать…'}"></textarea>
         <button class="btn primary icon" id="send" ${ui.busy ? 'disabled' : ''}>➤</button>
       </div>
     </div>`;
@@ -144,12 +149,29 @@ function renderGame() {
   $('#say').value = draft;
 
   root.querySelectorAll('[data-pc]').forEach((b) => b.onclick = () => showQuickSheet(b.dataset.pc));
-  root.querySelectorAll('[data-spk]').forEach((b) => b.onclick = () => { ui.speaker = b.dataset.spk === 'all' ? 'all' : b.dataset.spk; renderGame(); });
+  root.querySelectorAll('[data-spk]').forEach((b) => b.onclick = () => {
+    const v = b.dataset.spk;
+    if (v === 'skip') { const was = curName; nextTurn(); pushLog({ type: 'sys', text: `${was} пропускает ход` }); renderGame(); return; }
+    if (strict && v !== 'all' && v !== ui.speaker) { toast(`Сейчас ход: ${esc(curName)}. Можно нажать «⏭ Пропустить».`); return; }
+    setTurn(v); renderGame();
+  });
   const say = $('#say');
   say.addEventListener('input', () => { say.style.height = 'auto'; say.style.height = Math.min(120, say.scrollHeight) + 'px'; });
   say.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !('ontouchstart' in window)) { e.preventDefault(); sendPlayer(); } });
   $('#send').onclick = sendPlayer;
   $('#mic').onclick = toggleMic;
+}
+
+// ---------- Очерёдность ходов (ИИ-мастер) ----------
+function setTurn(id) { ui.speaker = id; state.game.turnId = id; save(); }
+function nextTurn() {
+  const party = partyChars();
+  if (!party.length) return;
+  const i = party.findIndex((c) => c.id === ui.speaker);
+  for (let k = 1; k <= party.length; k++) {
+    const c = party[((i < 0 ? -1 : i) + k) % party.length];
+    if (c.hpCur > 0 || party.every((x) => x.hpCur <= 0)) { setTurn(c.id); return; }
+  }
 }
 
 function renderLog() {
@@ -253,7 +275,7 @@ function systemPrefix(force = false) {
 
 async function startAdventure(hook) {
   state.game.started = true;
-  const text = `${systemPrefix(true)}\n\n[Система] Начинаем новую кампанию.${hook ? ' Пожелания игроков к завязке: ' + hook : ''} Представь мир и начни с яркой завязки, которая сразу вовлекает всех героев. Кратко познакомь героев друг с другом через сцену.`;
+  const text = `${systemPrefix(true)}\n\n[Система] Начинаем новую кампанию.${hook ? ' Пожелания игроков к завязке: ' + hook : ''} Представь мир и начни с яркой завязки, которая сразу вовлекает всех героев. Кратко познакомь героев друг с другом через сцену. Придумай каждому герою личную сюжетную линию (метки [[ЦЕЛЬ: …]]) и передай ход первому герою (метка [[ХОД: …]]).`;
   pushLog({ type: 'sys', text: '— Начало приключения —' });
   await runDm(text);
 }
@@ -272,6 +294,8 @@ async function sendPlayer() {
     const who = ui.speaker === 'all' ? 'Вся группа' : (charById(ui.speaker)?.name || 'Игрок');
     pushLog({ type: 'player', who, text: raw });
     line = `${who}: ${raw}`;
+    // ход переходит к следующему герою (мастер может переопределить меткой [[ХОД: …]])
+    if (state.settings.turnOrder !== false && ui.speaker !== 'all') nextTurn();
   }
   if (!state.game.started) {
     state.game.started = true;
@@ -396,6 +420,15 @@ function applyTags(entry) {
         targetsFor(who).forEach((c) => { c.slotsUsed = c.slotsUsed || []; c.slotsUsed[lvl - 1] = (c.slotsUsed[lvl - 1] || 0) + 1; notes.push(`${c.name}: потрачена ячейка ${lvl} ур.`); });
         break;
       }
+      case 'ХОД': {
+        if (/^(все|всем|группа|вся группа)$/i.test(String(who).trim())) { setTurn('all'); break; }
+        const c = findCharByName(who);
+        if (c) setTurn(c.id);
+        break;
+      }
+      case 'ЦЕЛЬ':
+        targetsFor(who).forEach((c) => { c.quest = val || ''; notes.push(`⭐ ${c.name}: ${val}`); });
+        break;
       case 'ОТДЫХ':
         partyChars().forEach((c) => rest(c, /долг/i.test(who)));
         notes.push(/долг/i.test(who) ? 'Долгий отдых: хиты и ячейки восстановлены' : 'Короткий отдых');
@@ -578,6 +611,7 @@ function showQuickSheet(id, keepScroll = false) {
   } else if (tab === 'abil') {
     const spells = c.spells.map((n) => SPELLS.find((x) => x.name === n) || { name: n, lvl: '?', desc: '' });
     body = `
+      ${c.quest ? `<div class="card" style="border-color:var(--gold)"><b>⭐ Личная история</b><br>${esc(c.quest)}</div>` : ''}
       ${si ? `<h4>Заклинания</h4>
         <p>${ABILITIES.find((a) => a.id === si.ab).name} · СЛ спасброска <b>${si.dc}</b> · атака <b>${fmtMod(si.atk)}</b></p>
         <div class="slots">${si.slots.map((n, i) => n ? `<div class="slot">${i + 1} ур.: <span class="pips">${Array.from({ length: n }, (_, j) => `<span class="pip ${j < ((c.slotsUsed || [])[i] || 0) ? 'used' : ''}" data-q="slot:${i}:${j}"></span>`).join('')}</span></div>` : '').join('') || '<span class="muted">Ячеек пока нет</span>'}</div>
@@ -1257,6 +1291,7 @@ function renderSettings() {
     <div class="card">
       <h3>🔊 Голос</h3>
       <label class="row"><input type="checkbox" data-sb="voiceOn" ${s.voiceOn ? 'checked' : ''}> Мастер говорит вслух</label>
+      <label class="row" style="margin-top:6px"><input type="checkbox" data-sb="turnOrder" ${s.turnOrder !== false ? 'checked' : ''}> Ходить по очереди (ход передаётся следующему герою)</label>
       <label class="f">Голос ${vs.length ? '' : '(русские голоса не найдены — установите русский голос в настройках телефона)'}</label>
       <p class="muted">Нажмите ▶️, чтобы послушать, и выберите понравившийся голос.</p>
       <label class="spell-item" style="align-items:center"><input type="radio" name="voice" data-voice="" ${!s.voiceName ? 'checked' : ''}><span class="grow">Авто (лучший из найденных)</span></label>
@@ -1284,7 +1319,7 @@ function renderSettings() {
         <button class="btn danger" id="newgame">Сбросить приключение</button>
       </div>
       <p class="muted">Экспорт сохраняет героев и историю в файл (без API-ключа).</p>
-      <p class="muted">Версия приложения: 6</p>
+      <p class="muted">Версия приложения: 7</p>
       <input type="file" id="impfile" accept=".json,application/json" style="display:none">
     </div>`;
   root.oninput = (e) => {
