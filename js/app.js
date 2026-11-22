@@ -1166,7 +1166,12 @@ function renderSettings() {
       <h3>🔊 Голос</h3>
       <label class="row"><input type="checkbox" data-sb="voiceOn" ${s.voiceOn ? 'checked' : ''}> Мастер говорит вслух</label>
       <label class="f">Голос ${vs.length ? '' : '(русские голоса не найдены — установите русский голос в настройках телефона)'}</label>
-      <select data-s="voiceName"><option value="">Авто (лучший из найденных)</option>${vs.map((v) => `<option value="${esc(DM.voiceId(v))}" ${DM.voiceId(v) === s.voiceName ? 'selected' : ''}>${esc(DM.voiceLabel(v))}</option>`).join('')}</select>
+      <p class="muted">Нажмите ▶️, чтобы послушать, и выберите понравившийся голос.</p>
+      <label class="spell-item" style="align-items:center"><input type="radio" name="voice" data-voice="" ${!s.voiceName ? 'checked' : ''}><span class="grow">Авто (лучший из найденных)</span></label>
+      ${DM.voiceList().map((x) => `<label class="spell-item" style="align-items:center">
+        <input type="radio" name="voice" data-voice="${esc(x.key)}" ${s.voiceName === x.key || (s.voiceName && s.voiceName === x.key.split('#')[0] && x.key.endsWith('#1')) ? 'checked' : ''}>
+        <span class="grow">${esc(x.label)}<br><span class="muted" style="font-size:.7rem;word-break:break-all">${esc(x.uri)}</span></span>
+        <button class="btn small" data-play="${esc(x.key)}">▶️</button></label>`).join('')}
       <div class="row" style="margin:6px 0"><button class="btn small" id="vrefresh">🔄 Обновить список</button><span class="muted">Русских голосов: ${vs.length} (всего в телефоне: ${DM.allVoicesCount()})</span></div>
       <p class="muted">Хотите голос приятнее? На iPhone: Настройки → Универсальный доступ → Устная речь → Голоса → Русский → скачайте «Милена (улучшенный)». Затем полностью закройте игру (смахните из списка приложений), откройте снова и выберите голос с пометкой «улучшенный».</p>
       <label class="f">Скорость речи: ${s.rate}</label><input type="range" min="0.6" max="1.6" step="0.05" data-s="rate" value="${s.rate}" style="width:100%">
@@ -1187,6 +1192,7 @@ function renderSettings() {
         <button class="btn danger" id="newgame">Сбросить приключение</button>
       </div>
       <p class="muted">Экспорт сохраняет героев и историю в файл (без API-ключа).</p>
+      <p class="muted">Версия приложения: 5</p>
       <input type="file" id="impfile" accept=".json,application/json" style="display:none">
     </div>`;
   root.oninput = (e) => {
@@ -1197,6 +1203,7 @@ function renderSettings() {
     if (e.target.type === 'range') e.target.previousElementSibling.textContent = e.target.previousElementSibling.textContent.replace(/[\d.]+$/, s[k]);
   };
   root.onchange = (e) => {
+    if (e.target.name === 'voice') { s.voiceName = e.target.dataset.voice; save(); }
     if (e.target.dataset.sb) { s[e.target.dataset.sb] = e.target.checked; save(); }
     if (e.target.dataset.s && e.target.tagName === 'SELECT') { s[e.target.dataset.s] = e.target.value; save(); }
     if (e.target.id === 'impfile') {
@@ -1207,6 +1214,8 @@ function renderSettings() {
   };
   root.onclick = (e) => {
     const id = e.target.id;
+    const play = e.target.closest('[data-play]');
+    if (play) { e.preventDefault(); DM.speak('Приветствую, искатели приключений! Ваша история начинается в таверне.', { flush: true, voiceKey: play.dataset.play, force: true }); return; }
     if (id === 'vtest') { const was = s.voiceOn; s.voiceOn = true; DM.speak('Приветствую, искатели приключений! Ваша история начинается в таверне «Гарцующий грифон».', { flush: true }); s.voiceOn = was; }
     if (id === 'vrefresh') { DM.refreshVoices(); renderSettings(); toast('Список голосов обновлён'); return; }
     if (id === 'exp') {
