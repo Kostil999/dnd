@@ -191,14 +191,18 @@ function startCombat(def) {
   const lvl = p.reduce((s, c) => s + c.level, 0) / Math.max(1, p.length);
   let keys = [...def.monsters];
   if (def.scale && p.length >= 4) keys.push(keys[0]);
-  if (p.length <= 2 && keys.length > 1 && !MONSTERS[keys[0]].boss) keys = keys.slice(0, Math.max(1, keys.length - 1));
+  // меньше героев — меньше врагов
+  if (p.length === 1) keys = keys.slice(0, 1);
+  else if (p.length === 2 && keys.length > 1) keys = keys.slice(0, keys.length - 1);
+  else if (p.length === 3 && keys.length > 3) keys = keys.slice(0, 3);
+  const solo = p.length === 1 ? 0.6 : 1;
   const counts = {};
   const mons = keys.map((k, i) => {
     const m = MONSTERS[k];
     counts[k] = (counts[k] || 0) + 1;
     const total = keys.filter((x) => x === k).length;
     const mult = lvl >= 5 ? 2 : lvl >= 3 ? 1.5 : 1;
-    const hp = Math.round(m.hp * mult);
+    const hp = Math.max(3, Math.round(m.hp * mult * solo));
     return { id: 'm' + i, key: k, name: total > 1 ? `${m.name} ${counts[k]}` : m.name, ac: m.ac + (lvl >= 5 ? 1 : 0), hp, max: hp, atk: m.atk + (lvl >= 5 ? 2 : lvl >= 3 ? 1 : 0), dmg: m.dmg, dex: m.dex, xp: m.xp, boss: m.boss };
   });
   const order = [
