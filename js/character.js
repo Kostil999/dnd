@@ -187,6 +187,7 @@ export function summary(c) {
   if (si) s += ` Заклинания (СЛ ${si.dc}, атака +${si.atk}): ${[...c.spells, c.customSpells].filter(Boolean).join(', ') || '—'}.`;
   if (c.conditions) s += ` Состояния: ${c.conditions}.`;
   if (c.quest) s += ` Личная цель: ${c.quest}.`;
+  if (c.location) s += ` Находится: ${c.location}.`;
   if (c.equipment) s += ` Снаряжение: ${c.equipment.replace(/\n/g, '; ')}. Золото: ${c.gold} зм.`;
   return s;
 }
