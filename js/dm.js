@@ -42,7 +42,20 @@ export const SYSTEM_PROMPT = `Ты — опытный Мастер подзем�
 let voices = [];
 function loadVoices() { voices = window.speechSynthesis ? speechSynthesis.getVoices() : []; }
 if (window.speechSynthesis) { loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; }
-export const ruVoices = () => voices.filter((v) => v.lang && v.lang.toLowerCase().startsWith('ru'));
+const isRu = (v) => (v.lang && v.lang.toLowerCase().replace('_', '-').startsWith('ru')) || /милена|юрий|milena|yuri|katya|катя/i.test(v.name);
+// Качество голоса по идентификатору (на iPhone улучшенные голоса называются так же, как обычные)
+export function voiceQuality(v) {
+  const id = `${v.voiceURI} ${v.name}`.toLowerCase();
+  if (/premium|neural|natural/.test(id)) return 3;
+  if (/enhanced|улучш|siri/.test(id)) return 2;
+  if (/compact|eloquence|novelty|superstar|grandpa|grandma|bad news|bubbles|cellos|zarvox|whisper|jester|organ|trinoids|wobble|bells|boing|albert|fred|junior|kathy|ralph/.test(id)) return 0;
+  return 1;
+}
+export const voiceLabel = (v) => `${v.name}${['', '', ' — улучшенный', ' — премиум'][voiceQuality(v)]}${v.localService === false ? ' (онлайн)' : ''}`;
+export const voiceId = (v) => v.voiceURI || v.name;
+export const ruVoices = () => voices.filter(isRu).sort((a, b) => voiceQuality(b) - voiceQuality(a));
+export const allVoicesCount = () => voices.length;
+export function refreshVoices() { loadVoices(); return ruVoices(); }
 
 export function cleanForSpeech(text) {
   return text.replace(/\[\[[^\]]*\]\]/g, ' ').replace(/[*_#`>]/g, '').replace(/\s+/g, ' ').trim();
@@ -71,7 +84,8 @@ function pump() {
   const u = new SpeechSynthesisUtterance(text);
   u.lang = 'ru-RU';
   const vs = ruVoices();
-  const v = vs.find((x) => x.name === state.settings.voiceName) || vs[0];
+  const want = state.settings.voiceName;
+  const v = (want && (vs.find((x) => voiceId(x) === want) || vs.find((x) => x.name === want))) || vs[0];
   if (v) u.voice = v;
   u.rate = Number(state.settings.rate) || 1;
   u.pitch = Number(state.settings.pitch) || 1;
