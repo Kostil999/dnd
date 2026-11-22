@@ -230,7 +230,15 @@ function renderEntry(e, i) {
       if (kind.toUpperCase() === 'БРОСОК') {
         const ri = reqIdx++;
         const done = e.done && e.done[ri];
-        return `<span class="req ${done ? 'done' : ''}"><button class="btn small" data-req="${i}:${ri}" ${done ? 'disabled' : ''}>🎲 ${a[0]}: ${a[1] || ''}${a[2] ? ' · ' + a[2] : ''}${done ? ' → ' + esc(done) : ''}</button></span>`;
+        let odds = '';
+        const rc = findCharByName(a[0]);
+        if (rc && !done && a[1] && !/\d+\s*[кd]\s*\d+/i.test(a[1])) {
+          const chk = C.resolveCheck(rc, a[1].replace(/&[a-z]+;/g, ''));
+          const dc = parseInt(String(a[2] || '').replace(/\D+/g, ''), 10);
+          const pct = dc ? Math.max(0, Math.min(100, Math.round(((21 - (dc - chk.mod)) / 20) * 100))) : null;
+          odds = ` <span style="opacity:.85">(${fmtMod(chk.mod)}${pct !== null ? `, шанс ${pct}%` : ''})</span>`;
+        }
+        return `<span class="req ${done ? 'done' : ''}"><button class="btn small" data-req="${i}:${ri}" ${done ? 'disabled' : ''}>🎲 ${a[0]}: ${a[1] || ''}${a[2] ? ' · ' + a[2] : ''}${odds}${done ? ' → ' + esc(done) : ''}</button></span>`;
       }
       return `<span class="tag">${kind}: ${a.join(' ')}</span>`;
     });
@@ -1324,7 +1332,7 @@ function renderSettings() {
         <button class="btn danger" id="newgame">Сбросить приключение</button>
       </div>
       <p class="muted">Экспорт сохраняет героев и историю в файл (без API-ключа).</p>
-      <p class="muted">Версия приложения: 9</p>
+      <p class="muted">Версия приложения: 10</p>
       <input type="file" id="impfile" accept=".json,application/json" style="display:none">
     </div>`;
   root.oninput = (e) => {
