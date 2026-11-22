@@ -56,6 +56,21 @@ export const voiceId = (v) => v.voiceURI || v.name;
 export const ruVoices = () => voices.filter(isRu).sort((a, b) => voiceQuality(b) - voiceQuality(a));
 export const allVoicesCount = () => voices.length;
 export function refreshVoices() { loadVoices(); return ruVoices(); }
+// Список с уникальными ключами: на iPhone у разных вариантов голоса бывают одинаковые имя и идентификатор
+export function voiceList() {
+  const seen = {};
+  return ruVoices().map((v) => {
+    const base = voiceId(v);
+    seen[base] = (seen[base] || 0) + 1;
+    const n = seen[base];
+    return { v, key: `${base}#${n}`, label: voiceLabel(v) + (n > 1 || ruVoices().filter((x) => x.name === v.name).length > 1 ? ` · вариант ${ruVoices().filter((x) => x.name === v.name).indexOf(v) + 1}` : ''), uri: v.voiceURI || '' };
+  });
+}
+function pickVoice(key) {
+  const list = voiceList();
+  if (!key) return list[0]?.v;
+  return (list.find((x) => x.key === key) || list.find((x) => x.key.split('#')[0] === key) || list.find((x) => x.v.name === key) || list[0])?.v;
+}
 
 export function cleanForSpeech(text) {
   return text.replace(/\[\[[^\]]*\]\]/g, ' ').replace(/[*_#`>]/g, '').replace(/\s+/g, ' ').trim();
@@ -63,8 +78,8 @@ export function cleanForSpeech(text) {
 
 let speakQueueBusy = false;
 const queue = [];
-export function speak(text, { flush = false } = {}) {
-  if (!state.settings.voiceOn || !window.speechSynthesis) return;
+export function speak(text, { flush = false, voiceKey = null, force = false } = {}) {
+  if ((!state.settings.voiceOn && !force) || !window.speechSynthesis) return;
   if (flush) stopSpeaking();
   const clean = cleanForSpeech(text);
   if (!clean) return;
@@ -72,21 +87,19 @@ export function speak(text, { flush = false } = {}) {
   const parts = clean.match(/[^.!?…]+[.!?…]*\s*/g) || [clean];
   let buf = '';
   for (const p of parts) {
-    if ((buf + p).length > 220 && buf) { queue.push(buf); buf = ''; }
+    if ((buf + p).length > 220 && buf) { queue.push({ text: buf, voiceKey }); buf = ''; }
     buf += p;
   }
-  if (buf.trim()) queue.push(buf);
+  if (buf.trim()) queue.push({ text: buf, voiceKey });
   pump();
 }
 function pump() {
   if (speakQueueBusy || !queue.length) return;
-  const text = queue.shift();
-  const u = new SpeechSynthesisUtterance(text);
+  const item = queue.shift();
+  const u = new SpeechSynthesisUtterance(item.text);
   u.lang = 'ru-RU';
-  const vs = ruVoices();
-  const want = state.settings.voiceName;
-  const v = (want && (vs.find((x) => voiceId(x) === want) || vs.find((x) => x.name === want))) || vs[0];
-  if (v) u.voice = v;
+  const v = pickVoice(item.voiceKey || state.settings.voiceName);
+  if (v) { try { u.voice = v; u.lang = v.lang || 'ru-RU'; } catch (e) { /* голос недоступен — говорим голосом по умолчанию */ } }
   u.rate = Number(state.settings.rate) || 1;
   u.pitch = Number(state.settings.pitch) || 1;
   speakQueueBusy = true;
