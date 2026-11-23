@@ -321,9 +321,12 @@ const GENERIC = [
 ];
 const MIN_CHOICES = 4;
 const genKey = (g) => `${posOf(actor())}|${actor()?.id}|${g}`;
+// Условия: if — все флаги должны быть (строка или массив), ifnot — ни одного из флагов
 function visibleChoices(sc) {
   const f = off().flags;
-  return (sc.choices || []).filter((ch) => (!ch.if || f[ch.if]) && (!ch.ifnot || !f[ch.ifnot]));
+  const all = (x) => (Array.isArray(x) ? x.every((k) => f[k]) : !!f[x]);
+  const any = (x) => (Array.isArray(x) ? x.some((k) => f[k]) : !!f[x]);
+  return (sc.choices || []).filter((ch) => (!ch.if || all(ch.if)) && (!ch.ifnot || !any(ch.ifnot)));
 }
 function quickActions() {
   const used = off().genUsed || {};

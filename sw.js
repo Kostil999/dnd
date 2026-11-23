@@ -1,8 +1,8 @@
 // Офлайн-кэш приложения (всё, кроме ИИ-мастера, работает без интернета)
-const CACHE = 'dnd-master-v15';
+const CACHE = 'dnd-master-v16';
 const ASSETS = [
   './', 'index.html', 'css/style.css', 'manifest.webmanifest',
-  'js/app.js', 'js/store.js', 'js/data.js', 'js/rules.js', 'js/dice.js', 'js/character.js', 'js/dm.js', 'js/offline.js', 'js/adventures.js', 'js/adventures2.js',
+  'js/app.js', 'js/store.js', 'js/data.js', 'js/rules.js', 'js/dice.js', 'js/character.js', 'js/dm.js', 'js/offline.js', 'js/adventures.js', 'js/adventures2.js', 'js/adventures3.js',
   'js/vendor/anthropic-sdk.js', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
 ];
 self.addEventListener('install', (e) => {
