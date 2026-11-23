@@ -127,21 +127,14 @@ function renderGame() {
   root.innerHTML = `
     <div id="party-bar">${party.map((c) => {
       const pct = Math.max(0, Math.min(100, (c.hpCur / Math.max(1, c.hpMax)) * 100));
-      return `<button class="pchip ${c.id === ui.speaker ? 'sel' : ''}" data-pc="${c.id}">
-        <b>${esc(c.emoji)} ${esc(c.name.split(' ')[0])}</b>
-        <span class="muted">❤ ${c.hpCur}/${c.hpMax}${c.hpTemp ? '+' + c.hpTemp : ''} · 🛡 ${C.ac(c)}</span>
-        ${c.location ? `<span class="muted" style="display:block;font-size:.7rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px">📍 ${esc(c.location)}</span>` : ''}
+      return `<button class="pchip mini ${c.id === ui.speaker ? 'sel' : ''}" data-pc="${c.id}">
+        <b>${esc(c.emoji)} ${esc(c.name.split(' ')[0])} <span class="muted" style="font-weight:400">❤${c.hpCur}/${c.hpMax}${c.hpTemp ? '+' + c.hpTemp : ''}</span></b>
+        ${c.location ? `<span class="muted loc">📍 ${esc(c.location)}</span>` : ''}
         <div class="hpbar"><i style="width:${pct}%;background:${pct < 30 ? 'var(--red)' : pct < 60 ? 'var(--gold)' : 'var(--green)'}"></i></div>
       </button>`;
     }).join('')}</div>
     <div id="log"></div>
     <div id="composer">
-      ${state.game.started ? (() => {
-        const sc = ui.speaker === 'all' ? null : charById(ui.speaker);
-        return `<div class="turn-card compact"><div class="tc-av">${sc ? esc(sc.emoji) : '👥'}</div><div class="grow">
-          <div class="tc-title">${party.length > 1 ? 'Ходит ' : ''}${sc ? esc(sc.name.split(' ')[0]) : 'вся группа'}${sc ? ` <span class="muted" style="font-family:sans-serif;font-size:.8rem;font-weight:400">❤ ${sc.hpCur}/${sc.hpMax}</span>` : ''}</div>
-          <div class="muted tc-sub">${sc && sc.location ? `📍 ${esc(sc.location)} · ` : ''}Скажите 🎤 или напишите, что ${sc ? 'делает герой' : 'делает группа'}</div></div></div>`;
-      })() : ''}
       <div class="speaker-sel">
         ${strict ? '<span style="align-self:center">Ход:</span>' : ''}
         ${party.map((c) => `<button data-spk="${c.id}" class="${c.id === ui.speaker ? 'sel' : ''}" ${strict && c.id !== ui.speaker ? 'style="opacity:.45"' : ''}>${esc(c.name.split(' ')[0])}</button>`).join('')}
@@ -1343,7 +1336,7 @@ function renderSettings() {
         <button class="btn danger" id="newgame">Сбросить приключение</button>
       </div>
       <p class="muted">Экспорт сохраняет героев и историю в файл (без API-ключа).</p>
-      <p class="muted">Версия приложения: 12</p>
+      <p class="muted">Версия приложения: 13</p>
       <input type="file" id="impfile" accept=".json,application/json" style="display:none">
     </div>`;
   root.oninput = (e) => {

@@ -746,14 +746,20 @@ export function render(root) {
       const pct = Math.max(0, Math.min(100, (c.hpCur / Math.max(1, c.hpMax)) * 100));
       const active = cb ? (t && t.kind === 'hero' && t.id === c.id) : actor()?.id === c.id;
       const fighting = combatOf(c);
-      return `<button class="pchip ${active ? 'sel' : ''}" data-o="sheet:${c.id}">
-        <b>${esc(c.emoji)} ${esc(c.name.split(' ')[0])}</b>
-        ${o.sceneId ? `<span class="muted" style="display:block;font-size:.7rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px">${o.done?.[c.id] ? '⛓ выбыл(а)' : (fighting ? '⚔️ ' : '📍 ') + esc(adv().scenes[posOf(c)]?.title || '')}</span>` : ''}
-        <span class="muted">${isDead(c) ? '☠️ погиб' : `❤ ${c.hpCur}/${c.hpMax} · 🛡 ${C.ac(c)}`}</span>
+      return `<button class="pchip mini ${active ? 'sel' : ''}" data-o="sheet:${c.id}">
+        <b>${esc(c.emoji)} ${esc(c.name.split(' ')[0])} <span class="muted" style="font-weight:400">${isDead(c) ? '☠️' : `❤${c.hpCur}/${c.hpMax}`}</span></b>
+        <span class="muted loc">${o.done?.[c.id] ? '⛓ выбыл(а)' : (fighting ? '⚔️ ' : '📍 ') + esc(adv().scenes[posOf(c)]?.title || '')}</span>
         <div class="hpbar"><i style="width:${pct}%;background:${pct < 30 ? 'var(--red)' : pct < 60 ? 'var(--gold)' : 'var(--green)'}"></i></div></button>`;
     }).join('')}</div>
     <div id="log">${o.log.slice(-80).map(entryHtml).join('')}</div>
-    <div id="composer" class="off-panel">${panelHtml(sc, cb, t)}</div>`;
+    <div id="composer" class="action-bar">${barHtml(sc, cb, t)}</div>
+    <div class="act-sheet ${sheetOpen && !o.ended ? 'open' : ''}">
+      <div class="act-backdrop" data-o="sheet-close"></div>
+      <div class="act-body">
+        <div class="act-handle" data-o="sheet-close"><span></span>Свернуть ▾</div>
+        ${panelHtml(sc, cb, t)}
+      </div>
+    </div>`;
   const lg = $('#log', root); lg.scrollTop = lg.scrollHeight;
   bind(root);
 }
@@ -764,6 +770,31 @@ function entryHtml(e, i) {
   if (e.type === 'player') return `<div class="msg player"><span class="who">${esc(e.who)}</span>${esc(e.text)}</div>`;
   if (e.type === 'roll') return `<div class="msg roll">${e.html}</div>`;
   return `<div class="msg sys">${esc(e.text)}</div>`;
+}
+
+let sheetOpen = false;
+function barHtml(sc, cb, t) {
+  const o = off();
+  if (o.ended) {
+    return `<div class="bar-row"><div class="grow tc-title">${o.ended === 'win' ? '🏆 Победа!' : '💀 Конец'}</div><button class="btn primary" data-o="menu">📚 К приключениям</button></div>`;
+  }
+  if (cb) {
+    if (t && t.kind === 'hero') {
+      const c = byId(t.id);
+      const alive = cb.mons.filter((m) => m.hp > 0).length;
+      return `<div class="bar-row"><div class="tc-av">${esc(c.emoji)}</div><div class="grow"><div class="tc-title">⚔️ Ходит ${esc(c.name.split(' ')[0])}</div>
+        <div class="muted tc-sub">❤ ${c.hpCur}/${c.hpMax} · раунд ${cb.round} · врагов: ${alive}</div></div>
+        <button class="btn primary bar-btn" data-o="sheet-open">⚔️ Действовать</button></div>`;
+    }
+    return `<div class="bar-row"><div class="tc-av">👹</div><div class="grow"><div class="tc-title">Ходит ${esc(t ? t.name : 'враг')}…</div><div class="muted tc-sub">Подождите, враг действует</div></div></div>`;
+  }
+  const a = actor();
+  if (!a) return '';
+  const n = visibleChoices(sc).length + (o.combats || []).length;
+  const multi = party().length > 1;
+  return `<div class="bar-row"><div class="tc-av">${esc(a.emoji)}</div><div class="grow"><div class="tc-title">${multi ? 'Ходит ' : ''}${esc(a.name.split(' ')[0])}</div>
+    <div class="muted tc-sub">❤ ${a.hpCur}/${a.hpMax}${multi ? ` · ⚡ ${quickLeft()}/${MAX_QUICK}` : ''} · 📍 ${esc(sc.title)}</div></div>
+    <button class="btn primary bar-btn" data-o="sheet-open">🎯 Выбрать действие${n ? ` (${n})` : ''}</button></div>`;
 }
 
 const pill = (pct) => `<span class="pill ${pct >= 60 ? 'good' : pct >= 35 ? 'mid' : 'bad'}">${pct}%</span>`;
@@ -867,15 +898,17 @@ function bind(root) {
         if (turnOrderOn() && party().length > 1 && arg !== actor().id) { H.toast(`Сейчас ход: ${esc(actor().name)}. Можно нажать «⏭ Пропустить».`); break; }
         off().actor = arg; save(); H.rerender(); break;
       case 'skip': sys(`${actor().name} пропускает ход`); advance(); H.rerender(); break;
-      case 'personal': if (quickLeft() > 0 || party().length < 2) choosePersonal(); break;
-      case 'quick': { const g = GENERIC.find((x) => x.gen === arg); if (g && (quickLeft() > 0 || party().length < 2)) doGeneric(g); break; }
-      case 'endturn': endTurn(); break;
+      case 'sheet-open': sheetOpen = true; H.rerender(); break;
+      case 'sheet-close': sheetOpen = false; H.rerender(); break;
+      case 'personal': sheetOpen = false; if (quickLeft() > 0 || party().length < 2) choosePersonal(); break;
+      case 'quick': { sheetOpen = false; const g = GENERIC.find((x) => x.gen === arg); if (g && (quickLeft() > 0 || party().length < 2)) doGeneric(g); break; }
+      case 'endturn': sheetOpen = false; endTurn(); break;
       case 'with': { const w = off().with || (off().with = {}); w[arg] = !w[arg]; save(); H.rerender(); break; }
       case 'sheet': H.openSheet(arg); break;
-      case 'choose': choose(+arg); break;
+      case 'choose': sheetOpen = false; choose(+arg); break;
       case 'target': { const c2 = CB(); if (c2) c2.target = arg; save(); H.rerender(); break; }
-      case 'join': joinCombat(arg); break;
-      case 'act': heroAct(arg); break;
+      case 'join': sheetOpen = false; joinCombat(arg); break;
+      case 'act': sheetOpen = false; heroAct(arg); break;
       case 'say': { const e2 = off().log.slice(-80)[+arg]; if (e2) DM.speak(e2.text, { flush: true }); break; }
       default: break;
     }
