@@ -32,6 +32,7 @@ function closeModal() { $('#modal').classList.add('hidden'); $('#modal').innerHT
 
 function switchTab(tab) {
   ui.tab = tab;
+  OFF.closeSheet();
   document.querySelectorAll('#tabbar button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
   document.querySelectorAll('.tab').forEach((s) => s.classList.toggle('active', s.id === 'tab-' + tab));
   render();
@@ -117,6 +118,7 @@ function renderGame() {
   }
 
   if (state.mode === 'offline') { OFF.render(root); return; }
+  OFF.closeSheet();
 
   if (state.game.turnId) ui.speaker = state.game.turnId;
   if (!ui.speaker || (ui.speaker !== 'all' && !party.find((c) => c.id === ui.speaker))) ui.speaker = party[0].id;
@@ -1336,7 +1338,7 @@ function renderSettings() {
         <button class="btn danger" id="newgame">Сбросить приключение</button>
       </div>
       <p class="muted">Экспорт сохраняет героев и историю в файл (без API-ключа).</p>
-      <p class="muted">Версия приложения: 14</p>
+      <p class="muted">Версия приложения: 15</p>
       <button class="btn" id="forceupd" style="width:100%">🔄 Обновить приложение до последней версии</button>
       <input type="file" id="impfile" accept=".json,application/json" style="display:none">
     </div>`;

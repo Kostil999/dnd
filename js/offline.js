@@ -738,6 +738,7 @@ export function render(root) {
       <button class="btn" data-o="ai" style="width:100%">🐉 Переключиться на ИИ-мастера</button>
     </div>`;
     bind(root);
+    closeSheet();
     return;
   }
   const sc = scene();
@@ -752,16 +753,11 @@ export function render(root) {
         <div class="hpbar"><i style="width:${pct}%;background:${pct < 30 ? 'var(--red)' : pct < 60 ? 'var(--gold)' : 'var(--green)'}"></i></div></button>`;
     }).join('')}</div>
     <div id="log">${o.log.slice(-80).map(entryHtml).join('')}</div>
-    <div id="composer" class="action-bar">${barHtml(sc, cb, t)}</div>
-    <div class="act-sheet ${sheetOpen && !o.ended ? 'open' : ''}">
-      <div class="act-backdrop" data-o="sheet-close"></div>
-      <div class="act-body">
-        <div class="act-handle" data-o="sheet-close"><span></span>Свернуть ▾</div>
-        ${panelHtml(sc, cb, t)}
-      </div>
-    </div>`;
+    <div id="composer" class="action-bar">${barHtml(sc, cb, t)}<div class="bar-hint">↑ потяните вверх или нажмите кнопку</div></div>`;
   const lg = $('#log', root); lg.scrollTop = lg.scrollHeight;
   bind(root);
+  renderSheet(panelHtml(sc, cb, t), sheetOpen && !o.ended);
+  setupBarSwipe($('#composer', root));
 }
 
 function entryHtml(e, i) {
@@ -885,15 +881,89 @@ function panelHtml(sc, cb, t) {
   return h;
 }
 
+// ---------- Шторка с действиями: живёт на самом верхнем слое страницы ----------
+function sheetRoot() {
+  let el = document.getElementById('act-sheet');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'act-sheet';
+    el.className = 'act-sheet';
+    el.innerHTML = `<div class="act-backdrop" data-o="sheet-close"></div>
+      <div class="act-body"><div class="act-handle" data-o="sheet-close"><span></span>Свернуть ▾ (или смахните вниз)</div><div class="act-content"></div></div>`;
+    document.body.appendChild(el);
+    el.onclick = onClick;
+    setupSheetDrag(el);
+  }
+  return el;
+}
+function renderSheet(html, open) {
+  const el = sheetRoot();
+  const content = el.querySelector('.act-content');
+  const keep = el.classList.contains('open') && open ? el.querySelector('.act-body').scrollTop : 0;
+  content.innerHTML = html;
+  if (open && !el.classList.contains('open')) {
+    el.querySelector('.act-body').scrollTop = 0;
+    requestAnimationFrame(() => el.classList.add('open'));
+  } else if (!open) el.classList.remove('open');
+  else el.querySelector('.act-body').scrollTop = keep;
+}
+export function closeSheet() {
+  sheetOpen = false;
+  const el = document.getElementById('act-sheet');
+  if (el) el.classList.remove('open');
+}
+// Смахнуть шторку вниз пальцем
+function setupSheetDrag(el) {
+  const body = el.querySelector('.act-body');
+  let startY = null; let dy = 0; let dragging = false;
+  body.addEventListener('touchstart', (e) => {
+    if (body.scrollTop > 2 && !e.target.closest('.act-handle')) { startY = null; return; }
+    startY = e.touches[0].clientY; dy = 0; dragging = false;
+  }, { passive: true });
+  body.addEventListener('touchmove', (e) => {
+    if (startY === null) return;
+    dy = e.touches[0].clientY - startY;
+    if (dy > 6) {
+      dragging = true;
+      body.style.transition = 'none';
+      body.style.transform = `translateY(${dy}px)`;
+      e.preventDefault();
+    } else if (dy < -6 && !dragging) startY = null; // это прокрутка вверх
+  }, { passive: false });
+  const end = () => {
+    if (startY === null) return;
+    body.style.transition = '';
+    body.style.transform = '';
+    if (dragging && dy > 80) { sheetOpen = false; el.classList.remove('open'); H.rerender(); }
+    startY = null; dragging = false;
+  };
+  body.addEventListener('touchend', end);
+  body.addEventListener('touchcancel', end);
+}
+// Потянуть нижнюю полоску вверх — открыть шторку
+function setupBarSwipe(bar) {
+  if (!bar) return;
+  let startY = null;
+  bar.addEventListener('touchstart', (e) => { startY = e.touches[0].clientY; }, { passive: true });
+  bar.addEventListener('touchmove', (e) => {
+    if (startY === null) return;
+    if (e.touches[0].clientY - startY < -30 && bar.querySelector('[data-o="sheet-open"]')) { startY = null; sheetOpen = true; H.rerender(); }
+  }, { passive: true });
+  bar.addEventListener('touchend', () => { startY = null; });
+}
+
 function bind(root) {
-  root.onclick = (e) => {
+  root.onclick = onClick;
+}
+function onClick(e) {
+  {
     const v = e.target.closest('[data-o]')?.dataset.o;
     if (!v) return;
     const [cmd, arg] = [v.slice(0, v.indexOf(':') < 0 ? v.length : v.indexOf(':')), v.includes(':') ? v.slice(v.indexOf(':') + 1) : ''];
     switch (cmd) {
       case 'start': startAdventure(arg); break;
-      case 'ai': state.mode = 'ai'; save(); H.rerender(); break;
-      case 'menu': DM.stopSpeaking(); state.offline = blank(); save(); H.rerender(); break;
+      case 'ai': closeSheet(); state.mode = 'ai'; save(); H.rerender(); break;
+      case 'menu': DM.stopSpeaking(); closeSheet(); state.offline = blank(); save(); H.rerender(); break;
       case 'actor':
         if (turnOrderOn() && party().length > 1 && arg !== actor().id) { H.toast(`Сейчас ход: ${esc(actor().name)}. Можно нажать «⏭ Пропустить».`); break; }
         off().actor = arg; save(); H.rerender(); break;
@@ -904,7 +974,7 @@ function bind(root) {
       case 'quick': { sheetOpen = false; const g = GENERIC.find((x) => x.gen === arg); if (g && (quickLeft() > 0 || party().length < 2)) doGeneric(g); break; }
       case 'endturn': sheetOpen = false; endTurn(); break;
       case 'with': { const w = off().with || (off().with = {}); w[arg] = !w[arg]; save(); H.rerender(); break; }
-      case 'sheet': H.openSheet(arg); break;
+      case 'sheet': closeSheet(); H.openSheet(arg); break;
       case 'choose': sheetOpen = false; choose(+arg); break;
       case 'target': { const c2 = CB(); if (c2) c2.target = arg; save(); H.rerender(); break; }
       case 'join': sheetOpen = false; joinCombat(arg); break;
@@ -912,7 +982,7 @@ function bind(root) {
       case 'say': { const e2 = off().log.slice(-80)[+arg]; if (e2) DM.speak(e2.text, { flush: true }); break; }
       default: break;
     }
-  };
+  }
 }
 
 export function repeatLast() {
