@@ -76,9 +76,12 @@ function advance(announce = true) {
     return;
   }
   o.focus = null;
+  const changed = o.actor !== next.id;
   o.actor = next.id;
+  o.turnActs = 0;
   save();
   const a = byId(next.id);
+  if (changed && party().length > 1 && a) log({ type: 'turn', text: `Ход: ${a.name.split(' ')[0]}` });
   if (!announce || !a || party().length < 2) return;
   if (posOf(a) !== fromPos || (o.combats || []).length) {
     const sc = adv().scenes[posOf(a)];
@@ -88,6 +91,25 @@ function advance(announce = true) {
   } else DM.speak(`${a.name.split(' ')[0]}, твой ход.`);
 }
 const rotate = advance;
+// Быстрые действия не заканчивают ход: за ход их можно сделать MAX_QUICK
+const MAX_QUICK = 2;
+const quickLeft = () => Math.max(0, MAX_QUICK - (off().turnActs || 0));
+function quickDone() {
+  const o = off();
+  o.turnActs = (o.turnActs || 0) + 1;
+  save();
+  if (o._started) { o._started = false; save(); H.rerender(); return; }
+  if (quickLeft() === 0 && units().length > 1) {
+    sys(`У ${actor().name.split(' ')[0]} закончились быстрые действия — ход переходит дальше.`);
+    advance();
+  }
+  H.rerender();
+}
+function endTurn() {
+  const a = actor();
+  if (units().length > 1) sys(`${a.name.split(' ')[0]} заканчивает ход.`);
+  advance(); H.rerender();
+}
 // Если действие героя начало бой — очередь уже передана бою
 function afterAction() {
   const o = off();
@@ -161,7 +183,7 @@ function choosePersonal() {
   if (last) { q.done = true; sys(`⭐ Личная история «${tpl.title}» героя ${c.name} завершена!`); }
   else q.step++;
   c.quest = questStatus(c);
-  save(); afterAction();
+  save(); quickDone();
 }
 
 function removeCond(list, cond) {
@@ -200,6 +222,7 @@ export function startAdventure(id) {
     c.conditions = removeCond(c.conditions, 'Без сознания');
   });
   sys(`— ${adv().title} —`);
+  if (!state.helpSeen) { state.helpSeen = true; setTimeout(() => H.showHelp && H.showHelp(), 300); }
   assignQuests();
   o.actor = party()[0]?.id;
   o.unit = { k: 'h', id: o.actor };
@@ -288,27 +311,23 @@ const XP = [0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000, 85000, 1
 
 // Местные действия: добавляются, если сюжетных вариантов меньше 4
 const GENERIC = [
-  { gen: 'search', label: 'Обыскать это место', check: { what: 'Анализ', dc: 12 } },
-  { gen: 'listen', label: 'Прислушаться и осмотреться', check: { what: 'Внимательность', dc: 12 } },
-  { gen: 'heal', label: 'Перевязать раны', check: { what: 'Медицина', dc: 10 } },
-  { gen: 'cheer', label: 'Подбодрить товарищей', check: { what: 'Убеждение', dc: 12 } },
-  { gen: 'plan', label: 'Обдумать план', repeat: true },
-  { gen: 'gear', label: 'Проверить снаряжение', repeat: true },
+  { gen: 'search', icon: '🔍', label: 'Обыскать место', check: { what: 'Анализ', dc: 12 } },
+  { gen: 'listen', icon: '👂', label: 'Прислушаться', check: { what: 'Внимательность', dc: 12 } },
+  { gen: 'heal', icon: '🩹', label: 'Перевязать раны', check: { what: 'Медицина', dc: 10 } },
+  { gen: 'cheer', icon: '📣', label: 'Подбодрить', check: { what: 'Убеждение', dc: 12 } },
+  { gen: 'plan', icon: '🧠', label: 'Обдумать план', repeat: true },
+  { gen: 'gear', icon: '🎒', label: 'Проверить снаряжение', repeat: true },
   { gen: 'wait', label: 'Подождать и понаблюдать', repeat: true },
 ];
 const MIN_CHOICES = 4;
 const genKey = (g) => `${posOf(actor())}|${actor()?.id}|${g}`;
 function visibleChoices(sc) {
   const f = off().flags;
-  const list = (sc.choices || []).filter((ch) => (!ch.if || f[ch.if]) && (!ch.ifnot || !f[ch.ifnot]));
-  if (!sc.choices || !sc.choices.length) return list;
+  return (sc.choices || []).filter((ch) => (!ch.if || f[ch.if]) && (!ch.ifnot || !f[ch.ifnot]));
+}
+function quickActions() {
   const used = off().genUsed || {};
-  for (const g of GENERIC) {
-    if (list.length >= MIN_CHOICES) break;
-    if (!g.repeat && used[genKey(g.gen)]) continue;
-    list.push(g);
-  }
-  return list;
+  return GENERIC.filter((g) => g.gen !== 'wait' && (g.repeat || !used[genKey(g.gen)]));
 }
 
 const FINDS = ['Факел', 'Моток верёвки', 'Старинная монета', 'Огниво', 'Кусок мела', 'Бурдюк с водой', 'Зелье лечения'];
@@ -370,7 +389,7 @@ function doGeneric(g) {
   }
   narrate(text, `${scene().title} · ${name}`);
   save();
-  afterAction();
+  quickDone();
 }
 
 // Как герой развит в нужной проверке: модификатор и шанс успеха
@@ -399,6 +418,7 @@ function choose(i) {
   if (!ch) return;
   DM.stopSpeaking();
   if (ch.gen) { doGeneric(ch); return; }
+  off().turnActs = 0;
   const a = actor();
   const isGroup = ch.check && ch.check.group;
   // кто идёт: сам герой + те, кого он позвал с собой; групповое действие — все, кто рядом
@@ -733,17 +753,30 @@ export function render(root) {
         <div class="hpbar"><i style="width:${pct}%;background:${pct < 30 ? 'var(--red)' : pct < 60 ? 'var(--gold)' : 'var(--green)'}"></i></div></button>`;
     }).join('')}</div>
     <div id="log">${o.log.slice(-80).map(entryHtml).join('')}</div>
-    <div id="composer" style="max-height:48dvh;overflow-y:auto">${panelHtml(sc, cb, t)}</div>`;
+    <div id="composer" class="off-panel">${panelHtml(sc, cb, t)}</div>`;
   const lg = $('#log', root); lg.scrollTop = lg.scrollHeight;
   bind(root);
 }
 
 function entryHtml(e, i) {
+  if (e.type === 'turn') return `<div class="turn-divider"><span>🎯 ${esc(e.text)}</span></div>`;
   if (e.type === 'dm') return `<div class="msg dm"><span class="who">📖 ${esc(e.title || 'Мастер')} <button class="btn small" data-o="say:${i}" style="float:right;padding:0 6px">🔈</button></span>${esc(e.text)}</div>`;
   if (e.type === 'player') return `<div class="msg player"><span class="who">${esc(e.who)}</span>${esc(e.text)}</div>`;
   if (e.type === 'roll') return `<div class="msg roll">${e.html}</div>`;
   return `<div class="msg sys">${esc(e.text)}</div>`;
 }
+
+const pill = (pct) => `<span class="pill ${pct >= 60 ? 'good' : pct >= 35 ? 'mid' : 'bad'}">${pct}%</span>`;
+function oddsLine(list, what, dc) {
+  return list.map((c) => { const x = chanceOf(c, what, dc); return `<span class="odds">${esc(c.name.split(' ')[0])} ${fmtMod(x.mod)} ${pill(x.pct)}</span>`; }).join(' ');
+}
+export const HELP_HTML = `<h3>❓ Как играть</h3>
+  <p><b>Ход и действия.</b> Герои ходят по очереди. В свой ход можно сделать до ${MAX_QUICK} <b>быстрых действий</b> (обыскать, прислушаться, перевязать раны, шаг личной истории ⭐) — они не заканчивают ход. <b>Главное действие</b> — сюжетный выбор — двигает историю и передаёт ход следующему. Можно и просто нажать «Закончить ход».</p>
+  <p><b>Проверки.</b> 🎲 — нужен бросок к20 + модификатор героя против сложности (СЛ). Цветная метка — шанс успеха именно у этого героя: <span class="pill good">60%+</span> хорошо, <span class="pill mid">35–60%</span> рискованно, <span class="pill bad">до 35%</span> лучше поручить другому.</p>
+  <p><b>Разделение.</b> Если герой уходит — остальные остаются. Чтобы пойти вместе, отметьте спутников в «Взять с собой».</p>
+  <p><b>Бой.</b> Ходят по инициативе. Нажмите на врага, чтобы выбрать цель, затем — атаку. Герои вне боя ходят между ходами бойцов и могут прибежать на помощь.</p>
+  <p><b>Лист героя.</b> Нажмите на карточку героя вверху — откроются характеристики, способности и инвентарь.</p>
+  <p class="muted">Эта подсказка всегда есть в меню ☰ → «Как играть».</p>`;
 
 function panelHtml(sc, cb, t) {
   const o = off();
@@ -751,41 +784,74 @@ function panelHtml(sc, cb, t) {
     return `<div class="center"><h3>${o.ended === 'win' ? '🏆 Победа!' : '💀 Конец'}</h3>
       <div class="row" style="justify-content:center"><button class="btn primary" data-o="menu">📚 К списку приключений</button></div></div>`;
   }
+  // ---------- бой ----------
   if (cb) {
-    const mons = cb.mons.map((m) => `<button class="pchip ${cb.target === m.id ? 'sel' : ''}" data-o="target:${m.id}" ${m.hp <= 0 ? 'disabled style="opacity:.4"' : ''}>
-      <b>${m.boss ? '💀' : '👹'} ${esc(m.name)}</b><span class="muted">${m.hp > 0 ? `❤ ${m.hp}/${m.max} · 🛡 ${m.ac}` : 'повержен'}</span>
+    const fighters = cb.heroes.map(byId).filter(Boolean);
+    const freeH = active().filter((x) => !combatOf(x) && x.hpCur > 0);
+    const mons = cb.mons.map((m) => `<button class="enemy ${cb.target === m.id && m.hp > 0 ? 'target' : ''} ${m.hp <= 0 ? 'dead' : ''}" data-o="target:${m.id}" ${m.hp <= 0 ? 'disabled' : ''}>
+      <div class="en-name">${m.boss ? '💀' : '👹'} ${esc(m.name)}${cb.target === m.id && m.hp > 0 ? ' 🎯' : ''}</div>
+      <div class="muted">${m.hp > 0 ? `❤ ${m.hp}/${m.max} · 🛡 КД ${m.ac}` : 'повержен'}</div>
       <div class="hpbar"><i style="width:${(m.hp / m.max) * 100}%;background:var(--red)"></i></div></button>`).join('');
     let actions = '';
     if (t.kind === 'hero') {
       const c = byId(t.id);
-      actions = `<div class="muted" style="margin:6px 0">Ход: <b style="color:var(--gold)">${esc(c.name)}</b> · раунд ${cb.round} · цель: нажмите на врага</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">${heroActions(c).map((a) => `<button class="btn small" data-o="act:${a.id}">${esc(a.label)}</button>`).join('')}</div>`;
-    } else actions = `<div class="muted center" style="margin:8px 0">Ходит ${esc(t.name)}…</div>`;
-    const freeH = active().filter((x) => !combatOf(x) && x.hpCur > 0);
-    const where = `<div class="muted" style="margin-bottom:4px">⚔️ <b>${esc(adv().scenes[cb.scene]?.title || '')}</b>: сражаются ${esc(names(cb.heroes.map(byId).filter(Boolean)))}${freeH.length ? ` · вне боя: ${esc(names(freeH))} (ходят между ходами бойцов)` : ''}</div>`;
-    return `${where}<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:4px">${mons}</div>${actions}`;
+      const acts = heroActions(c);
+      const main = acts.filter((x) => x.id !== 'end');
+      actions = `<div class="turn-card"><div class="tc-av">${esc(c.emoji)}</div><div class="grow"><div class="tc-title">Ходит ${esc(c.name.split(' ')[0])}</div>
+          <div class="muted">❤ ${c.hpCur}/${c.hpMax} · 🛡 КД ${C.ac(c)} · раунд ${cb.round}</div></div></div>
+        ${c.hpCur > 0 ? '<div class="sec-title">🎯 Выберите цель (нажмите на врага), затем действие</div>' : '<div class="sec-title">💀 Герой без сознания</div>'}
+        <div class="act-grid">${main.map((a) => `<button class="btn" data-o="act:${a.id}">${esc(a.label)}</button>`).join('')}</div>
+        <button class="btn end-btn" data-o="act:end">✅ Закончить ход</button>`;
+    } else actions = `<div class="turn-card enemy-turn"><div class="tc-av">👹</div><div class="grow"><div class="tc-title">Ходит ${esc(t.name)}…</div><div class="muted">Подождите, враг действует</div></div></div>`;
+    return `<div class="sec-title">⚔️ Бой: ${esc(adv().scenes[cb.scene]?.title || '')} · ${esc(names(fighters))}</div>
+      ${freeH.length ? `<div class="muted small-note">Вне боя: ${esc(names(freeH))} — ходят между ходами бойцов и могут прибежать на помощь.</div>` : ''}
+      <div class="enemy-row">${mons}</div>${actions}`;
   }
-  const chs = visibleChoices(sc);
+  // ---------- исследование ----------
   const a = actor();
-  const strict = turnOrderOn() && party().length > 1;
-  const fightsHtml = (o.combats || []).map((f) => `<button class="btn" style="text-align:left;border-color:var(--red)" data-o="join:${f.id}">⚔️ ${posOf(a) === f.scene ? 'Вступить в бой' : 'Бежать на помощь'}: ${esc(names(f.heroes.map(byId).filter(Boolean)))} — ${esc(adv().scenes[f.scene]?.title || '')} <span class="muted">(врагов: ${f.mons.filter((m) => m.hp > 0).length})</span></button>`).join('');
-  const ps = a && personalAvailable(a);
-  const pq = a && questOf(a);
-  return `<div class="speaker-sel">${strict ? 'Ход:' : 'Действует:'} ${party().map((c) => `<button data-o="actor:${c.id}" class="${a && a.id === c.id ? 'sel' : ''}" ${strict && !(a && a.id === c.id) ? 'style="opacity:.45"' : ''}>${esc(c.name.split(' ')[0])}</button>`).join('')}
-      ${strict ? '<button data-o="skip">⏭ Пропустить</button>' : ''}</div>
-    ${(() => {
-      if (!a) return '';
-      const others = here(a).filter((x) => x !== a);
-      const away = active().filter((x) => posOf(x) !== posOf(a));
-      let h = `<div class="muted" style="margin-bottom:6px">📍 <b>${esc(sc.title)}</b>: ${esc(a.name.split(' ')[0])}${others.length ? `, рядом: ${esc(names(others))}` : ' — здесь больше никого'}${away.length ? ` · в другом месте: ${esc(names(away))}` : ''}</div>`;
-      if (others.length) {
-        h += `<div class="speaker-sel">Взять с собой: ${others.map((x) => `<button data-o="with:${x.id}" class="${off().with?.[x.id] ? 'sel' : ''}">${off().with?.[x.id] ? '✓ ' : ''}${esc(x.name.split(' ')[0])}</button>`).join('')}</div>
-          <div class="muted" style="margin-bottom:6px;font-size:.78rem">Кого не отметили — останутся здесь и решат сами в свой ход.</div>`;
-      }
-      return h;
-    })()}
-    ${pq && !pq.q.done ? `<div class="muted" style="margin-bottom:6px">⭐ ${esc(a.name.split(' ')[0])}: «${esc(pq.tpl.title)}» — шаг ${pq.q.step + 1}/3${ps ? '' : ' (откроется дальше по сюжету)'}</div>` : ''}
-    <div style="display:grid;gap:6px">${fightsHtml}${ps ? `<button class="btn" style="text-align:left;border-color:var(--gold)" data-o="personal">⭐ ${esc(ps.label)} <span class="muted">(личная история, ${esc(ps.what)}, СЛ ${ps.dc})</span><br><span style="font-size:.85rem">${chanceHtml([a], ps.what, ps.dc)}</span></button>` : ''}${chs.map((ch, i) => `<button class="btn" style="text-align:left${ch.gen ? ';opacity:.85' : ''}" data-o="choose:${i}">${ch.gen ? '◦ ' : ch.check ? '🎲 ' : '➤ '}${esc(ch.label)}${ch.check ? ` <span class="muted">(${esc(ch.check.what)}, СЛ ${ch.check.dc}${ch.check.group ? ', все, кто рядом' : ''})</span><br><span style="font-size:.85rem">${chanceHtml(ch.check.group ? here(a).filter((x) => !combatOf(x)) : [a], ch.check.what, ch.check.dc)}</span>` : ''}</button>`).join('')}</div>`;
+  if (!a) return '';
+  const chs = visibleChoices(sc);
+  const qs = quickActions();
+  const ps = personalAvailable(a);
+  const pq = questOf(a);
+  const others = here(a).filter((x) => x !== a && !combatOf(x));
+  const away = active().filter((x) => posOf(x) !== posOf(a) || combatOf(x));
+  const multi = party().length > 1;
+  const left = quickLeft();
+  let h = `<div class="turn-card compact"><div class="tc-av">${esc(a.emoji)}</div><div class="grow">
+      <div class="tc-title">${multi ? 'Ходит ' : ''}${esc(a.name.split(' ')[0])} <span class="muted" style="font-family:sans-serif;font-size:.8rem;font-weight:400">❤ ${a.hpCur}/${a.hpMax}</span></div>
+      <div class="muted tc-sub">📍 ${esc(sc.title)}${others.length ? ` · рядом: ${esc(names(others))}` : ''}${away.length ? ` · отдельно: ${esc(names(away))}` : ''}</div></div>
+      ${multi ? `<div class="tc-left" title="Быстрые действия за ход">⚡ ${left}/${MAX_QUICK}</div>` : ''}</div>`;
+  if (multi && !turnOrderOn()) {
+    h += `<div class="with-row"><span class="muted">Кто действует:</span> ${active().filter((x) => !combatOf(x)).map((x) => `<button class="chip ${x.id === a.id ? 'on' : ''}" data-o="actor:${x.id}">${esc(x.name.split(' ')[0])}</button>`).join('')}</div>`;
+  }
+  // бои рядом
+  (o.combats || []).forEach((f) => {
+    h += `<button class="choice fight" data-o="join:${f.id}"><span class="ch-ic">⚔️</span><span class="grow"><b>${posOf(a) === f.scene ? 'Вступить в бой' : 'Бежать на помощь'}</b>: ${esc(names(f.heroes.map(byId).filter(Boolean)))} — ${esc(adv().scenes[f.scene]?.title || '')}<br><span class="muted">врагов осталось: ${f.mons.filter((m) => m.hp > 0).length} · заканчивает ход</span></span></button>`;
+  });
+  // главное действие
+  h += `<div class="sec-title">➤ Главное действие <span class="muted">— ${multi ? 'передаёт ход' : 'двигает историю'}</span></div>`;
+  if (others.length) {
+    h += `<div class="with-row"><span class="muted">Взять с собой:</span> ${others.map((x) => `<button class="chip ${o.with?.[x.id] ? 'on' : ''}" data-o="with:${x.id}">${o.with?.[x.id] ? '✓ ' : '+ '}${esc(x.name.split(' ')[0])}</button>`).join('')}</div>`;
+  }
+  h += chs.map((ch, i) => {
+    const ic = ch.check ? '🎲' : '➤';
+    let sub = '';
+    if (ch.check) {
+      const list = ch.check.group ? [a, ...others] : [a];
+      sub = `<div class="ch-sub"><span class="muted">${esc(ch.check.what)} · СЛ ${ch.check.dc}${ch.check.group ? ' · бросают все рядом' : ''}</span> ${oddsLine(list, ch.check.what, ch.check.dc)}</div>`;
+    }
+    return `<button class="choice" data-o="choose:${i}"><span class="ch-ic">${ic}</span><span class="grow"><b>${esc(ch.label)}</b>${sub}</span></button>`;
+  }).join('');
+  // быстрые действия
+  h += `<div class="sec-title">⚡ Быстрые действия <span class="muted">— ход не заканчивают${multi ? ` (осталось ${left})` : ''}</span></div>`;
+  if (pq && !pq.q.done) {
+    h += ps ? `<button class="choice personal" data-o="personal" ${left === 0 ? 'disabled' : ''}><span class="ch-ic">⭐</span><span class="grow"><b>${esc(ps.label)}</b><div class="ch-sub"><span class="muted">Личная история «${esc(pq.tpl.title)}» · ${esc(ps.what)} · СЛ ${ps.dc}</span> ${oddsLine([a], ps.what, ps.dc)}</div></span></button>`
+      : `<div class="muted small-note">⭐ «${esc(pq.tpl.title)}» — шаг ${pq.q.step + 1}/3 откроется дальше по сюжету.</div>`;
+  }
+  h += `<div class="quick-grid">${qs.map((g) => `<button class="quick" data-o="quick:${g.gen}" ${left === 0 && multi ? 'disabled' : ''}>${g.icon} ${esc(g.label)}${g.check ? `<br>${pill(chanceOf(a, g.check.what, g.check.dc).pct)}` : ''}</button>`).join('')}</div>`;
+  if (multi) h += `<button class="btn end-btn" data-o="endturn">✅ Закончить ход</button>`;
+  return h;
 }
 
 function bind(root) {
@@ -801,7 +867,9 @@ function bind(root) {
         if (turnOrderOn() && party().length > 1 && arg !== actor().id) { H.toast(`Сейчас ход: ${esc(actor().name)}. Можно нажать «⏭ Пропустить».`); break; }
         off().actor = arg; save(); H.rerender(); break;
       case 'skip': sys(`${actor().name} пропускает ход`); advance(); H.rerender(); break;
-      case 'personal': choosePersonal(); break;
+      case 'personal': if (quickLeft() > 0 || party().length < 2) choosePersonal(); break;
+      case 'quick': { const g = GENERIC.find((x) => x.gen === arg); if (g && (quickLeft() > 0 || party().length < 2)) doGeneric(g); break; }
+      case 'endturn': endTurn(); break;
       case 'with': { const w = off().with || (off().with = {}); w[arg] = !w[arg]; save(); H.rerender(); break; }
       case 'sheet': H.openSheet(arg); break;
       case 'choose': choose(+arg); break;
