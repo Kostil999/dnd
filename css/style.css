@@ -219,3 +219,12 @@ details.help p { margin: 6px 0; line-height: 1.45; }
 .act-sheet.open .act-body { transform: translateY(0); }
 .act-handle { position: sticky; top: 0; background: var(--bg); text-align: center; color: var(--muted); font-size: .8rem; padding: 6px 0 8px; z-index: 2; cursor: pointer; }
 .act-handle span { display: block; width: 44px; height: 5px; border-radius: 3px; background: var(--line); margin: 0 auto 4px; }
+/* шторка теперь на уровне страницы — поверх нижнего меню */
+#act-sheet { z-index: 70; }
+#act-sheet .act-body { padding-bottom: calc(20px + var(--safe-b)); touch-action: pan-y; will-change: transform; }
+.act-handle { touch-action: none; padding: 10px 0 10px; }
+.act-handle span { width: 54px; height: 6px; }
+.bar-hint { text-align: center; font-size: .68rem; color: var(--muted); margin-top: 4px; }
+.turn-card .grow { min-width: 0; }
+.turn-card .tc-sub { max-width: none; }
+.tc-left { flex-shrink: 0; }
