@@ -197,3 +197,25 @@ details.help p { margin: 6px 0; line-height: 1.45; }
 .tc-sub { font-size: .78rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 62vw; }
 .sec-title { margin: 8px 0 4px; }
 .choice { padding: 8px 10px; margin-bottom: 5px; }
+
+/* ---------- Компактная полоска действий и выезжающая шторка ---------- */
+.pchip.mini { padding: 4px 8px; min-width: 0; }
+.pchip.mini b { font-size: .85rem; max-width: 150px; }
+.pchip.mini .loc { display: block; font-size: .68rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
+.pchip.mini .hpbar { margin-top: 2px; height: 3px; }
+#party-bar { padding: 6px 8px; }
+.action-bar { padding: 8px 10px !important; }
+.bar-row { display: flex; gap: 10px; align-items: center; }
+.bar-row .tc-av { width: 38px; height: 38px; border-radius: 50%; background: var(--bg2); display: grid; place-items: center; font-size: 1.3rem; flex-shrink: 0; border: 2px solid var(--gold); }
+.bar-row .tc-title { font-family: Georgia, serif; color: var(--gold); font-weight: 700; font-size: 1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar-row .grow { min-width: 0; }
+.bar-btn { white-space: nowrap; padding: 11px 14px; font-size: .95rem; }
+.act-sheet { position: fixed; inset: 0; z-index: 40; pointer-events: none; }
+.act-sheet .act-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.55); opacity: 0; transition: opacity .2s; }
+.act-sheet .act-body { position: absolute; left: 0; right: 0; bottom: 0; max-height: 80dvh; overflow-y: auto; background: var(--bg); border-top: 2px solid var(--gold); border-radius: 18px 18px 0 0;
+  padding: 0 12px calc(16px + var(--safe-b)); transform: translateY(105%); transition: transform .22s ease-out; }
+.act-sheet.open { pointer-events: auto; }
+.act-sheet.open .act-backdrop { opacity: 1; }
+.act-sheet.open .act-body { transform: translateY(0); }
+.act-handle { position: sticky; top: 0; background: var(--bg); text-align: center; color: var(--muted); font-size: .8rem; padding: 6px 0 8px; z-index: 2; cursor: pointer; }
+.act-handle span { display: block; width: 44px; height: 5px; border-radius: 3px; background: var(--line); margin: 0 auto 4px; }
