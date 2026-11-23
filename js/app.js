@@ -1338,7 +1338,7 @@ function renderSettings() {
         <button class="btn danger" id="newgame">Сбросить приключение</button>
       </div>
       <p class="muted">Экспорт сохраняет героев и историю в файл (без API-ключа).</p>
-      <p class="muted">Версия приложения: 15</p>
+      <p class="muted">Версия приложения: 16</p>
       <button class="btn" id="forceupd" style="width:100%">🔄 Обновить приложение до последней версии</button>
       <input type="file" id="impfile" accept=".json,application/json" style="display:none">
     </div>`;

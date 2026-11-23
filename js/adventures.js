@@ -34,6 +34,12 @@ export const MONSTERS = {
   hag_weak: { name: 'Ослабевшая карга', ac: 14, hp: 22, atk: 4, dmg: '2к6+2', dex: 1, xp: 700, boss: true },
   madmage: { name: 'Безумный маг Зандер', ac: 12, hp: 40, atk: 6, dmg: '3к6', dex: 2, xp: 700, boss: true },
   madmage_weak: { name: 'Маг Зандер (борется с кристаллом)', ac: 11, hp: 22, atk: 5, dmg: '2к6', dex: 2, xp: 700, boss: true },
+  upyr: { name: 'Снежная упырица', ac: 14, hp: 45, atk: 6, dmg: '2к6+3', dex: 3, xp: 700, boss: true },
+  upyr_weak: { name: 'Раненая упырица', ac: 13, hp: 26, atk: 5, dmg: '2к6+1', dex: 3, xp: 450, boss: true },
+  viggo: { name: 'Управляющий Вигго', ac: 14, hp: 32, atk: 5, dmg: '1к8+3', dex: 2, xp: 450, boss: true },
+  templar: { name: 'Храмовый страж', ac: 16, hp: 16, atk: 4, dmg: '1к8+2', dex: 0, xp: 100 },
+  ylena: { name: 'Знахарка Ялена', ac: 12, hp: 27, atk: 5, dmg: '2к8', dex: 2, xp: 450, boss: true },
+  sych: { name: 'Контрабандист Сыч', ac: 14, hp: 30, atk: 5, dmg: '1к8+3', dex: 3, xp: 200, boss: true },
   bandit_captain_weak: { name: 'Атаман Рыжий Вальд', ac: 15, hp: 35, atk: 5, dmg: '2к6+2', dex: 3, xp: 450, boss: true },
 };
 
@@ -298,7 +304,8 @@ const ASH_MINE = {
 };
 
 import { MORE_ADVENTURES } from './adventures2.js';
-export const ADVENTURES = [ASH_MINE, ...MORE_ADVENTURES];
+import { LULLABY } from './adventures3.js';
+export const ADVENTURES = [LULLABY, ASH_MINE, ...MORE_ADVENTURES];
 
 // ---------------- Генератор случайного подземелья ----------------
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
