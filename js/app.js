@@ -100,6 +100,9 @@ function renderGame() {
       const n = Number(b.dataset.quick);
       for (let i = 0; i < n; i++) {
         const c = C.randomCharacter();
+        // имена в группе не повторяются
+        const taken = () => state.characters.some((x) => x.id !== c.id && x.name.split(' ')[0] === c.name.split(' ')[0]);
+        for (let k = 0; k < 30 && taken(); k++) c.name = randomName();
         c.player = `Игрок ${i + 1}`;
         state.characters.push(c); state.party.push(c.id);
       }
@@ -133,6 +136,12 @@ function renderGame() {
     }).join('')}</div>
     <div id="log"></div>
     <div id="composer">
+      ${state.game.started ? (() => {
+        const sc = ui.speaker === 'all' ? null : charById(ui.speaker);
+        return `<div class="turn-card compact"><div class="tc-av">${sc ? esc(sc.emoji) : '👥'}</div><div class="grow">
+          <div class="tc-title">${party.length > 1 ? 'Ходит ' : ''}${sc ? esc(sc.name.split(' ')[0]) : 'вся группа'}${sc ? ` <span class="muted" style="font-family:sans-serif;font-size:.8rem;font-weight:400">❤ ${sc.hpCur}/${sc.hpMax}</span>` : ''}</div>
+          <div class="muted tc-sub">${sc && sc.location ? `📍 ${esc(sc.location)} · ` : ''}Скажите 🎤 или напишите, что ${sc ? 'делает герой' : 'делает группа'}</div></div></div>`;
+      })() : ''}
       <div class="speaker-sel">
         ${strict ? '<span style="align-self:center">Ход:</span>' : ''}
         ${party.map((c) => `<button data-spk="${c.id}" class="${c.id === ui.speaker ? 'sel' : ''}" ${strict && c.id !== ui.speaker ? 'style="opacity:.45"' : ''}>${esc(c.name.split(' ')[0])}</button>`).join('')}
@@ -512,6 +521,7 @@ function doRequestedRoll(ei, ri) {
 function gameMenu() {
   if (state.mode === 'offline') {
     modal(`<h3>Меню (мастер без ИИ)</h3><div style="display:grid;gap:8px">
+      <button class="btn" data-m="help">❓ Как играть</button>
       <button class="btn" data-m="repeat">🔁 Повторить последний рассказ</button>
       <button class="btn" data-m="list">📚 Выбрать другое приключение</button>
       <button class="btn" data-m="ai">🐉 Переключиться на ИИ-мастера</button>
@@ -519,6 +529,7 @@ function gameMenu() {
       const m = e.target.closest('[data-m]')?.dataset.m;
       if (!m) return;
       closeModal();
+      if (m === 'help') setTimeout(showOfflineHelp, 50);
       if (m === 'repeat') OFF.repeatLast();
       if (m === 'list' && confirm('Выйти из текущего приключения?')) { OFF.quit(); renderGame(); }
       if (m === 'ai') { DM.stopSpeaking(); state.mode = 'ai'; save(); renderGame(); }
@@ -1332,7 +1343,7 @@ function renderSettings() {
         <button class="btn danger" id="newgame">Сбросить приключение</button>
       </div>
       <p class="muted">Экспорт сохраняет героев и историю в файл (без API-ключа).</p>
-      <p class="muted">Версия приложения: 10</p>
+      <p class="muted">Версия приложения: 12</p>
       <input type="file" id="impfile" accept=".json,application/json" style="display:none">
     </div>`;
   root.oninput = (e) => {
@@ -1374,6 +1385,7 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catc
 // продолжить незаконченный стрим после перезагрузки нельзя — убираем «висящие» записи
 state.game.log = state.game.log.filter((e) => !e.streaming);
 if (!state.mode) state.mode = state.settings.apiKey ? 'ai' : 'offline';
-OFF.setHelpers({ toast, rerender: () => { if (ui.tab === 'game') renderGame(); }, openSheet: (id) => showQuickSheet(id) });
+const showOfflineHelp = () => modal(`<div class="rules-body">${OFF.HELP_HTML}</div><button class="btn primary" style="width:100%" data-x="ok">Понятно</button>`, (e) => { if (e.target.closest('[data-x]')) closeModal(); });
+OFF.setHelpers({ toast, rerender: () => { if (ui.tab === 'game') renderGame(); }, openSheet: (id) => showQuickSheet(id), showHelp: showOfflineHelp });
 OFF.resume();
 render();
