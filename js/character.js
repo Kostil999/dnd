@@ -1,7 +1,8 @@
 // Расчёты и генерация персонажей
-import { ABILITIES, SKILLS, RACES, CLASSES, BACKGROUNDS, ARMORS, SPELLS, ALIGNMENTS, STANDARD_ARRAY, randomName, spellSlots } from './data.js';
+import { ABILITIES, SKILLS, RACES, CLASSES, BACKGROUNDS, ARMORS, SPELLS, ALIGNMENTS, STANDARD_ARRAY, spellSlots } from './data.js';
 import { rnd } from './dice.js';
 import { uid } from './store.js';
+import * as BS from './backstory.js';
 
 export const race = (c) => RACES.find((r) => r.id === c.raceId) || RACES[0];
 export const klass = (c) => CLASSES.find((k) => k.id === c.classId) || CLASSES[0];
@@ -80,7 +81,7 @@ export function defaultAttacks(c) {
 
 export function blankCharacter() {
   const c = {
-    id: uid(), name: 'Новый герой', player: '', raceId: 'human', classId: 'fighter', level: 1, bgId: 'soldier',
+    id: uid(), name: 'Новый герой', gender: 'm', player: '', raceId: 'human', classId: 'fighter', level: 1, bgId: 'soldier',
     alignment: ALIGNMENTS[4], xp: 0, method: 'standard',
     base: { str: 15, dex: 14, con: 13, int: 12, wis: 10, cha: 8 },
     extra: { str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0 },
@@ -129,14 +130,11 @@ export function assignScores(c, values) {
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const shuffle = (arr) => [...arr].sort(() => Math.random() - 0.5);
 
-const TRAITS = ['Всегда держу слово.', 'Шучу в самые неподходящие моменты.', 'Не доверяю магам.', 'Коллекционирую странные безделушки.', 'Говорю громко и прямо.', 'Читаю всё, что попадается под руку.', 'Мне трудно усидеть на месте.', 'Я спокоен даже перед лицом смерти.'];
-const IDEALS = ['Свобода: никто не должен жить в цепях.', 'Честь: я не отступлю от данного слова.', 'Знание: путь к силе лежит через понимание.', 'Семья: ради близких я пойду на всё.', 'Сила: побеждает сильнейший.', 'Милосердие: помогать нуждающимся — долг.'];
-const BONDS = ['Ищу пропавшего брата.', 'Должен вернуть долг старому наставнику.', 'Защищаю родную деревню.', 'Храню фамильную реликвию.', 'Хочу отомстить тому, кто сжёг мой дом.'];
-const FLAWS = ['Не могу устоять перед азартной игрой.', 'Слишком доверчив.', 'Вспыльчив.', 'Жаден до золота.', 'Боюсь темноты, хотя никому не признаюсь.', 'Высокомерен с простолюдинами.'];
 
 export function randomCharacter(opts = {}) {
   const c = blankCharacter();
-  c.name = randomName();
+  c.gender = opts.gender || (Math.random() < 0.5 ? 'm' : 'f');
+  c.name = BS.randomNameFor(c.gender);
   c.raceId = opts.raceId || pick(RACES).id;
   c.classId = opts.classId || pick(CLASSES).id;
   c.bgId = pick(BACKGROUNDS).id;
@@ -170,9 +168,24 @@ export function randomCharacter(opts = {}) {
     const first = shuffle(avail.filter((s) => s.lvl === 1)).slice(0, k.id === 'warlock' ? 2 : 4);
     c.spells = [...cantrips, ...first].map((s) => s.name);
   }
-  c.traits = pick(TRAITS); c.ideals = pick(IDEALS); c.bonds = pick(BONDS); c.flaws = pick(FLAWS);
+  generateStory(c, true);
   c.gold = 5 + rnd(20);
   return c;
+}
+
+// Личность, внешность и история героя. full=true — заново придумать черты/идеалы/привязанности/слабости
+function ensureName(c) {
+  if (!c.name || /^новый герой$/i.test(c.name.trim())) c.name = BS.randomNameFor(BS.genderOf(c));
+}
+export function generateStory(c, full = false) {
+  ensureName(c);
+  if (full || !c.traits || !c.ideals || !c.bonds || !c.flaws) BS.generatePersonality(c);
+  c.appearance = BS.generateAppearance(c, race(c));
+  c.backstory = BS.generateBackstory(c, race(c), klass(c), bg(c));
+}
+export function generateBackstoryOnly(c) {
+  ensureName(c);
+  c.backstory = BS.generateBackstory(c, race(c), klass(c), bg(c));
 }
 
 // Краткое описание персонажа для мастера
@@ -187,6 +200,7 @@ export function summary(c) {
   if (si) s += ` Заклинания (СЛ ${si.dc}, атака +${si.atk}): ${[...c.spells, c.customSpells].filter(Boolean).join(', ') || '—'}.`;
   if (c.conditions) s += ` Состояния: ${c.conditions}.`;
   if (c.quest) s += ` Личная цель: ${c.quest}.`;
+  if (c.backstory) s += ` История: ${c.backstory.length > 320 ? c.backstory.slice(0, 320) + '…' : c.backstory}`;
   if (c.location) s += ` Находится: ${c.location}.`;
   if (c.equipment) s += ` Снаряжение: ${c.equipment.replace(/\n/g, '; ')}. Золото: ${c.gold} зм.`;
   return s;
