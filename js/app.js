@@ -1336,7 +1336,8 @@ function renderSettings() {
         <button class="btn danger" id="newgame">Сбросить приключение</button>
       </div>
       <p class="muted">Экспорт сохраняет героев и историю в файл (без API-ключа).</p>
-      <p class="muted">Версия приложения: 13</p>
+      <p class="muted">Версия приложения: 14</p>
+      <button class="btn" id="forceupd" style="width:100%">🔄 Обновить приложение до последней версии</button>
       <input type="file" id="impfile" accept=".json,application/json" style="display:none">
     </div>`;
   root.oninput = (e) => {
@@ -1361,6 +1362,7 @@ function renderSettings() {
     const play = e.target.closest('[data-play]');
     if (play) { e.preventDefault(); DM.speak('Приветствую, искатели приключений! Ваша история начинается в таверне.', { flush: true, voiceKey: play.dataset.play, force: true }); return; }
     if (id === 'vtest') { const was = s.voiceOn; s.voiceOn = true; DM.speak('Приветствую, искатели приключений! Ваша история начинается в таверне «Гарцующий грифон».', { flush: true }); s.voiceOn = was; }
+    if (id === 'forceupd') { toast('Обновляю…'); forceUpdate(); return; }
     if (id === 'vrefresh') { DM.refreshVoices(); renderSettings(); toast('Список голосов обновлён'); return; }
     if (id === 'exp') {
       const blob = new Blob([exportAll()], { type: 'application/json' });
@@ -1374,7 +1376,27 @@ function renderSettings() {
 
 // ---------------- Запуск ----------------
 if (window.speechSynthesis) speechSynthesis.addEventListener?.('voiceschanged', () => { if (ui.tab === 'settings') renderSettings(); });
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+// Обновления: всегда проверяем свежую версию; когда она установилась — один раз перезагружаем страницу
+if ('serviceWorker' in navigator) {
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => {
+    reg.update().catch(() => {});
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+  }).catch(() => {});
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloaded) return;
+    reloaded = true;
+    location.reload();
+  });
+}
+async function forceUpdate() {
+  try {
+    if ('serviceWorker' in navigator) { const regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map((r) => r.unregister())); }
+    if (window.caches) { const keys = await caches.keys(); await Promise.all(keys.map((k) => caches.delete(k))); }
+  } catch (e) { /* ignore */ }
+  location.reload();
+}
 // продолжить незаконченный стрим после перезагрузки нельзя — убираем «висящие» записи
 state.game.log = state.game.log.filter((e) => !e.streaming);
 if (!state.mode) state.mode = state.settings.apiKey ? 'ai' : 'offline';
