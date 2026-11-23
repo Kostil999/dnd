@@ -228,3 +228,4 @@ details.help p { margin: 6px 0; line-height: 1.45; }
 .turn-card .grow { min-width: 0; }
 .turn-card .tc-sub { max-width: none; }
 .tc-left { flex-shrink: 0; }
+.story-preview { font-family: Georgia, serif; line-height: 1.6; background: var(--card); border-left: 3px solid var(--gold); border-radius: 8px; padding: 10px 12px; margin: 8px 0; white-space: pre-wrap; }

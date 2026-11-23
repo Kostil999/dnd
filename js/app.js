@@ -5,6 +5,7 @@ import { rollFormula, parseFormula, fmtMod, d20 } from './dice.js';
 import * as C from './character.js';
 import * as DM from './dm.js';
 import * as OFF from './offline.js';
+import { genderOf, randomNameFor } from './backstory.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
@@ -103,7 +104,7 @@ function renderGame() {
         const c = C.randomCharacter();
         // имена в группе не повторяются
         const taken = () => state.characters.some((x) => x.id !== c.id && x.name.split(' ')[0] === c.name.split(' ')[0]);
-        for (let k = 0; k < 30 && taken(); k++) c.name = randomName();
+        for (let k = 0; k < 30 && taken(); k++) c.name = randomNameFor(c.gender);
         c.player = `Игрок ${i + 1}`;
         state.characters.push(c); state.party.push(c.id);
       }
@@ -814,13 +815,14 @@ function openRandomDialog() {
     <h3>🎲 Случайный герой</h3>
     <label class="f">Раса</label><select id="rr"><option value="">Любая</option>${RACES.map((r) => `<option value="${r.id}">${r.name}</option>`).join('')}</select>
     <label class="f">Класс</label><select id="rc"><option value="">Любой</option>${CLASSES.map((k) => `<option value="${k.id}">${k.name}</option>`).join('')}</select>
+    <label class="f">Пол</label><select id="rg"><option value="">Любой</option><option value="m">Мужской</option><option value="f">Женский</option></select>
     <label class="f">Уровень</label><input type="number" id="rl" min="1" max="20" value="1">
     <label class="f">Имя игрока</label><input type="text" id="rp" placeholder="необязательно">
     <br><br><div class="row"><button class="btn primary grow" data-r="go">Создать</button><button class="btn" data-r="x">Отмена</button></div>`, (e) => {
     const r = e.target.closest('[data-r]')?.dataset.r;
     if (r === 'x') return closeModal();
     if (r === 'go') {
-      const c = C.randomCharacter({ raceId: $('#rr').value || undefined, classId: $('#rc').value || undefined, level: Math.max(1, Math.min(20, +$('#rl').value || 1)) });
+      const c = C.randomCharacter({ raceId: $('#rr').value || undefined, classId: $('#rc').value || undefined, gender: $('#rg').value || undefined, level: Math.max(1, Math.min(20, +$('#rl').value || 1)) });
       c.player = $('#rp').value.trim();
       state.characters.push(c);
       if (state.party.length < 4) state.party.push(c.id);
@@ -848,6 +850,7 @@ function sel(c, path, opts) {
 }
 
 function renderEditor(root, c) {
+  if (c.gender !== 'm' && c.gender !== 'f') c.gender = genderOf(c);
   const k = C.klass(c); const r = C.race(c); const b = C.bg(c);
   const profs = C.allSkillProfs(c);
   const fixedSkills = new Set([...(r.skills || []), ...b.skills]);
@@ -856,7 +859,7 @@ function renderEditor(root, c) {
   const pbSpent = ABILITIES.reduce((s, a) => s + (POINT_BUY_COST[c.base[a.id]] ?? 99), 0);
   const scroll = root.scrollTop;
   const avail = SPELLS.filter((s) => s.classes.includes(k.id) || c.spells.includes(s.name));
-  const openSecs = ui.openSecs || (ui.openSecs = new Set(['main', 'abil']));
+  const openSecs = ui.openSecs || (ui.openSecs = new Set(['main', 'abil', 'persona']));
   const sec = (id, title, body) => `<details class="sec" data-sec="${id}" ${openSecs.has(id) ? 'open' : ''}><summary>${title}</summary><div class="body">${body}</div></details>`;
 
   root.innerHTML = `
@@ -882,6 +885,7 @@ function renderEditor(root, c) {
   ${sec('main', '📜 Основное', `
     <div class="grid2">
       <div><label class="f">Игрок</label>${inp(c, 'player')}</div>
+      <div><label class="f">Пол</label>${sel(c, 'gender', [['m', 'Мужской'], ['f', 'Женский']])}</div>
       <div><label class="f">Уровень</label><div class="row" style="flex-wrap:nowrap"><button class="btn small" data-a="lvl:-1">−</button>${inp(c, 'level', 'number', 'min="1" max="20"')}<button class="btn small" data-a="lvl:1">+</button></div></div>
       <div><label class="f">Раса</label>${sel(c, 'raceId', RACES.map((x) => [x.id, x.name]))}</div>
       <div><label class="f">Класс</label>${sel(c, 'classId', CLASSES.map((x) => [x.id, x.name]))}</div>
@@ -993,12 +997,20 @@ function renderEditor(root, c) {
   `)}
 
   ${sec('persona', '🎭 Личность и история', `
+    <div class="card" style="background:var(--bg2)">
+      <div class="muted" style="margin-bottom:8px">Генератор придумает историю по расе, классу, предыстории, полу и характеру героя. Каждый раз — новая.</div>
+      <div style="display:grid;gap:6px">
+        <button class="btn primary" data-a="story">✨ Придумать историю</button>
+        <button class="btn" data-a="storyall">🎲 Новая личность, внешность и история</button>
+      </div>
+    </div>
+    ${c.backstory ? `<div class="story-preview">${esc(c.backstory)}</div>` : ''}
     <label class="f">Черты характера</label>${ta(c, 'traits')}
     <label class="f">Идеалы</label>${ta(c, 'ideals')}
     <label class="f">Привязанности</label>${ta(c, 'bonds')}
     <label class="f">Слабости</label>${ta(c, 'flaws')}
     <label class="f">Внешность</label>${ta(c, 'appearance')}
-    <label class="f">Предыстория персонажа</label>${ta(c, 'backstory')}
+    <label class="f">История персонажа (можно править)</label><textarea data-f="backstory" rows="7">${esc(c.backstory)}</textarea>
     <label class="f">Заметки</label>${ta(c, 'notes')}
   `)}
   `;
@@ -1062,7 +1074,9 @@ function renderEditor(root, c) {
       case 'back': ui.editId = null; renderChars(); return;
       case 'party': toggleParty(c.id); break;
       case 'more': editorMore(c); return;
-      case 'rname': c.name = randomName(); break;
+      case 'rname': c.name = randomNameFor(genderOf(c)); break;
+      case 'story': C.generateBackstoryOnly(c); toast('✨ Новая история готова'); break;
+      case 'storyall': C.generateStory(c, true); toast('✨ Новая личность, внешность и история'); break;
       case 'lvl': {
         const prevHpAuto = c.hpAuto;
         const old = c.level;
@@ -1338,7 +1352,7 @@ function renderSettings() {
         <button class="btn danger" id="newgame">Сбросить приключение</button>
       </div>
       <p class="muted">Экспорт сохраняет героев и историю в файл (без API-ключа).</p>
-      <p class="muted">Версия приложения: 16</p>
+      <p class="muted">Версия приложения: 17</p>
       <button class="btn" id="forceupd" style="width:100%">🔄 Обновить приложение до последней версии</button>
       <input type="file" id="impfile" accept=".json,application/json" style="display:none">
     </div>`;
